@@ -1,0 +1,24 @@
+local player = game:GetService("Players").LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local rootPart = character:WaitForChild("HumanoidRootPart")
+local teleportRemote = workspace:WaitForChild("Network"):WaitForChild("Teleport-RemoteEvent")
+
+local teleporting = false
+
+player.AttributeChanged:Connect(function(attr)
+    if attr == "IsDrowning" and player:GetAttribute("IsDrowning") == true then
+        if teleporting then return end
+        teleporting = true
+
+        local originalPos = rootPart.CFrame
+
+        teleportRemote:FireServer("Aquarium")
+
+        task.wait(0.2)
+        
+        rootPart.CFrame = originalPos
+        teleporting = false
+    end
+end)
+
+-- https://scriptblox.com/script/Dive-Down-Anti-Drown-207940
