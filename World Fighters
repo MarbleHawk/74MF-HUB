@@ -1,0 +1,228 @@
+local NPCS = {}
+
+for i, v in pairs(game:GetService("Workspace").Server.Enemies:GetDescendants()) do
+    if v:IsA("Part") then
+        if not table.find(NPCS, tostring(v)) then
+            table.insert(NPCS, tostring(v))
+        end
+    end
+end
+
+local Material = loadstring(game:HttpGet("https://raw.githubusercontent.com/Kinlei/MaterialLua/master/Module.lua"))()
+
+local X = Material.Load({
+    Title = "Voxle",
+    Style = 2,
+    SizeX = 300,
+    SizeY = 350,
+    Theme = "Light",
+    ColorOverrides = {
+        MainFrame = Color3.fromRGB(0,0,0),
+        Toggle = Color3.fromRGB(124,37,255),
+        ToggleAccent = Color3.fromRGB(255,255,255), 
+        Dropdown = Color3.fromRGB(124,37,255),
+        DropdownAccent = Color3.fromRGB(255,255,255),
+        Slider = Color3.fromRGB(124,37,255),
+        SliderAccent = Color3.fromRGB(255,255,255),
+        NavBarAccent = Color3.fromRGB(0,0,0),
+        Content = Color3.fromRGB(0,0,0),
+    }
+})
+
+local Y = X.New({Title = "Main"})
+local Z = X.New({Title = "Misc"})
+local Cred = X.New({Title = "Credits"})
+
+local function getNPC()
+    local dist, thing = math.huge, nil
+    for i, v in pairs(game:GetService("Workspace").Server.Enemies:GetDescendants()) do
+        if v:IsA("Part") then
+            local char = game.Players.LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local mag = (char.HumanoidRootPart.Position - v.Position).Magnitude
+                if mag < dist then
+                    dist = mag
+                    thing = v
+                end
+            end
+        end
+    end
+    return thing
+end
+
+local function getNPCNEAR()
+    local dist, thing = math.huge, nil
+    for i, v in pairs(game:GetService("Workspace").Client:GetDescendants()) do
+        if v:IsA("Model") and v.Parent.Name == "Enemies" then
+            local char = game.Players.LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local mag = (char.HumanoidRootPart.Position - v.HumanoidRootPart.Position).Magnitude
+                if mag < dist then
+                    dist = mag
+                    thing = v
+                end
+            end
+        end
+    end
+    return thing
+end
+
+local function getORE()
+    local dist, thing = math.huge, nil
+    for i, v in pairs(game:GetService("Workspace").Server.Enemies.Ores:GetDescendants()) do
+        if v:IsA("Part") then
+            local char = game.Players.LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local mag = (char.HumanoidRootPart.Position - v.Position).Magnitude
+                if mag < dist then
+                    dist = mag
+                    thing = v
+                end
+            end
+        end
+    end
+    return thing
+end
+
+Cred.Button({
+    Text = "Copy Discord",
+    Callback = function()
+        setclipboard("https://discord.gg/s3hYDPjuE3")
+    end,
+})
+local VirtualUser = game:GetService("VirtualUser")
+
+Y.Toggle({
+    Text = "Auto Attack",
+    Callback = function(Value)
+        _G.AutoAttack = Value
+
+        while _G.AutoAttack do
+            pcall(function()
+                local cam = workspace.CurrentCamera
+                if not cam then return end
+
+                local size = cam.ViewportSize
+                local pos = Vector2.new(size.X - 80, size.Y - 80)
+
+                VirtualUser:Button1Down(pos, cam.CFrame)
+                task.wait(0.03)
+                VirtualUser:Button1Up(pos, cam.CFrame)
+            end)
+
+            task.wait(0.1)
+        end
+    end,
+    Enabled = false
+})
+
+local function getNPCList()
+    local dist, thing = math.huge, nil
+    for i, v in pairs(game:GetService("Workspace").Server.Enemies:GetDescendants()) do
+        if v:IsA("Part") and v.Name == mobname then
+            local mag = (game.Players.LocalPlayer.Character.HumanoidRootPart.Position - v.Position).Magnitude
+            if mag < dist then
+                dist = mag
+                thing = v
+            end
+        end
+    end
+    return thing
+end
+
+local ii = Y.Dropdown({
+    Text = "Select Mob",
+    Callback = function(Value)
+        getgenv().mobname = Value
+    end,
+    Options = NPCS
+})
+
+Y.Toggle({
+    Text = "AutoMob",
+    Callback = function(Value)
+        _G.AutoMobList = Value
+        while _G.AutoMobList do 
+            task.wait()
+            pcall(function()
+                local target = getNPCList()
+                if target then
+                    game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = target.CFrame * CFrame.new(0, 0, 3)
+                end
+            end)
+        end
+    end,
+    Enabled = false
+})
+
+Y.Toggle({
+    Text = "AutoMob Nearest (Gamemodes)",
+    Callback = function(Value)
+        _G.AutoMob = Value
+        while _G.AutoMob do 
+            task.wait()
+            pcall(function()
+                local target = getNPCNEAR()
+                if target then
+                    game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = target.HumanoidRootPart.CFrame * CFrame.new(0, 0, 3)
+                end
+            end)
+        end
+    end,
+    Enabled = false
+})
+
+Y.Toggle({
+    Text = "Auto Ore",
+    Callback = function(Value)
+        _G.AutoORE = Value
+        while _G.AutoORE do 
+            task.wait()
+            pcall(function()
+                local target = getORE()
+                if target then
+                    game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = target.CFrame * CFrame.new(0, 0, 3)
+                end
+            end)
+        end
+    end,
+    Enabled = false
+})
+
+Y.Button({
+    Text = "Refresh Mobs",
+    Callback = function()
+        table.clear(NPCS)
+        for i, v in pairs(game:GetService("Workspace").Server.Enemies:GetDescendants()) do
+            if v:IsA("Part") and not table.find(NPCS, tostring(v)) then
+                table.insert(NPCS, tostring(v))
+            end
+        end
+        ii:SetOptions(NPCS)
+    end
+})
+
+Z.Slider({
+    Text = "WalkSpeed",
+    Callback = function(Value)
+        getgenv().WSValue = Value
+    end,
+    Min = 16,
+    Max = 500,
+    Def = 50
+})
+
+Z.Toggle({
+    Text = "Toggle WalkSpeed",
+    Callback = function(Value)
+        _G.WSToggle = Value
+        while _G.WSToggle do 
+            task.wait()
+            local hum = game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+            if hum then
+                hum.WalkSpeed = getgenv().WSValue or 50
+            end
+        end
+    end,
+    Enabled = false
+})
