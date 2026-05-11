@@ -1,0 +1,81 @@
+loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-BEST-PF-RAGEBOT-SCRIPT-WITH-KILL-ALL-*HUB-58274"))()
+
+-- PF Utility GUI - Reset & Rejoin only
+
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local LocalPlayer = Players.LocalPlayer
+
+local sg = Instance.new("ScreenGui")
+sg.Name = "PF_Util"
+sg.ResetOnSpawn = false
+sg.DisplayOrder = 999
+sg.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 70, 0, 34)
+frame.Position = UDim2.new(0, 10, 0, 10)
+frame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+frame.BackgroundTransparency = 0.3
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = sg
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+
+local layout = Instance.new("UIListLayout")
+layout.FillDirection = Enum.FillDirection.Horizontal
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+layout.VerticalAlignment = Enum.VerticalAlignment.Center
+layout.Padding = UDim.new(0, 4)
+layout.Parent = frame
+
+local pad = Instance.new("UIPadding")
+pad.PaddingLeft = UDim.new(0, 4)
+pad.PaddingRight = UDim.new(0, 4)
+pad.Parent = frame
+
+local function makeBtn(emoji, tooltip, fn)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 28, 0, 26)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    btn.BorderSizePixel = 0
+    btn.Text = emoji
+    btn.TextSize = 16
+    btn.Font = Enum.Font.GothamBold
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Parent = frame
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+
+    local tip = Instance.new("TextLabel")
+    tip.Size = UDim2.new(0, 48, 0, 16)
+    tip.Position = UDim2.new(0.5, -24, -1, -2)
+    tip.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    tip.BackgroundTransparency = 0.4
+    tip.BorderSizePixel = 0
+    tip.Text = tooltip
+    tip.TextSize = 10
+    tip.Font = Enum.Font.Gotham
+    tip.TextColor3 = Color3.fromRGB(220, 220, 220)
+    tip.Visible = false
+    tip.ZIndex = 10
+    tip.Parent = btn
+    Instance.new("UICorner", tip).CornerRadius = UDim.new(0, 4)
+
+    btn.MouseEnter:Connect(function() tip.Visible = true end)
+    btn.MouseLeave:Connect(function() tip.Visible = false end)
+    btn.MouseButton1Click:Connect(fn)
+end
+
+local UIS = game:GetService("UserInputService")
+
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.Zero then
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end
+end)
+
+makeBtn("🚪", "Rejoin", function()
+    TeleportService:Teleport(game.PlaceId, LocalPlayer)
+end)
