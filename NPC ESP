@@ -1,0 +1,237 @@
+--[[
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- ============================================================
+--  CLIENT-SIDE GRAPHICS OPTIMIZATION
+--  Lowers textures/shadows/effects but keeps render distance
+-- ============================================================
+
+local function applyGraphicsOptimizations()
+    -- Keep render distance high (do NOT touch MaxDistance / StreamingEnabled)
+    settings().Rendering.QualityLevel = Enum.QualityLevel.Level01  -- lowest GPU load
+
+    -- Lighting: disable expensive effects, keep world visible
+    Lighting.GlobalShadows      = false   -- biggest FPS killer on mobile
+    Lighting.FogEnd             = 100000  -- keep far fog so distance looks intact
+    Lighting.Brightness         = 2
+    Lighting.Ambient            = Color3.fromRGB(100, 100, 100)  -- compensate for no shadows
+
+    -- Kill post-processing effects
+    for _, effect in ipairs(Lighting:GetChildren()) do
+        if effect:IsA("PostEffect") then
+            effect.Enabled = false
+        end
+    end
+
+    -- Reduce texture quality globally
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("SpecialMesh") or obj:IsA("UnionOperation") then
+            -- nothing to do here but we catch them
+        elseif obj:IsA("BasePart") then
+            obj.CastShadow = false  -- stop every part casting shadows
+            -- Reduce material complexity on mobile
+            if isMobile then
+                if obj.Material == Enum.Material.SmoothPlastic or
+                   obj.Material == Enum.Material.Glass         or
+                   obj.Material == Enum.Material.Neon then
+                    -- keep as-is (cheap materials)
+                else
+                    obj.Material = Enum.Material.SmoothPlastic
+                end
+            end
+        elseif obj:IsA("Decal") or obj:IsA("Texture") then
+            -- Lower texture transparency slightly to avoid GPU overdraw on mobile
+            if isMobile then obj.Transparency = math.min(obj.Transparency + 0.05, 0.95) end
+        elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
+            or obj:IsA("Fire") or obj:IsA("Sparkles") then
+            if isMobile then obj.Enabled = false end
+        end
+    end
+
+    -- Camera: keep far field of view / render distance
+    local camera = workspace.CurrentCamera
+    if camera then
+        camera.FieldOfView = 70  -- standard; don't reduce as it breaks gameplay
+    end
+
+    -- Future-proof: apply same to newly added parts
+    workspace.DescendantAdded:Connect(function(obj)
+        if obj:IsA("BasePart") then
+            obj.CastShadow = false
+            if isMobile and obj.Material ~= Enum.Material.SmoothPlastic
+                         and obj.Material ~= Enum.Material.Neon then
+                obj.Material = Enum.Material.SmoothPlastic
+            end
+        elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
+            or obj:IsA("Fire") or obj:IsA("Sparkles") then
+            if isMobile then obj.Enabled = false end
+        end
+    end)
+end
+
+applyGraphicsOptimizations()
+
+-- ============================================================
+--  NPC HEALTH DISPLAY
+-- ============================================================
+
+-- Responsive sizes: larger on mobile so it's readable on small screens
+local BILLBOARD_SIZE   = isMobile and UDim2.new(5, 0, 2, 0)   or UDim2.new(4, 0, 1.5, 0)
+local TEXT_SIZE        = isMobile and 22                        or 18
+local STUDS_OFFSET     = Vector3.new(0, 2.5, 0)
+local HIGHLIGHT_FILL   = 0.5
+local ACTIVE_NPCS      = {}   -- [humanoid] = { highlight, billboard, connections }
+
+local function getAdornee(character)
+    return character:FindFirstChild("Head")
+        or character.PrimaryPart
+        or character:FindFirstChildWhichIsA("BasePart")
+end
+
+local function updateHealthText(billboard, humanoid)
+    local label = billboard:FindFirstChildOfClass("TextLabel")
+    if label then
+        local hp    = math.floor(humanoid.Health)
+        local maxHp = humanoid.MaxHealth
+        -- Show a colour-coded bar on mobile: green → yellow → red
+        local ratio = maxHp > 0 and (humanoid.Health / maxHp) or 0
+        label.TextColor3 = Color3.fromRGB(
+            math.floor(255 * (1 - ratio)),
+            math.floor(255 * ratio),
+            0
+        )
+        label.Text = "HP: " .. (maxHp > 0 and hp or 0)
+    end
+end
+
+local function cleanupNPC(humanoid)
+    local data = ACTIVE_NPCS[humanoid]
+    if not data then return end
+
+    for _, conn in ipairs(data.connections) do
+        conn:Disconnect()
+    end
+
+    -- Safely destroy UI elements (character may already be gone)
+    pcall(function() data.highlight:Destroy() end)
+    pcall(function() data.billboard:Destroy() end)
+
+    ACTIVE_NPCS[humanoid] = nil
+end
+
+local function setupNPC(humanoid)
+    -- Only run on the client; skip player characters
+    if not humanoid or not humanoid.Parent then return end
+    if game.Players:GetPlayerFromCharacter(humanoid.Parent) then return end
+    if ACTIVE_NPCS[humanoid] then return end  -- already set up
+
+    local character = humanoid.Parent
+    local connections = {}
+
+    -- ── Highlight ──────────────────────────────────────────
+    local highlight = character:FindFirstChildOfClass("Highlight")
+        or Instance.new("Highlight")
+    highlight.FillTransparency    = HIGHLIGHT_FILL
+    highlight.OutlineTransparency = 0
+    highlight.Parent              = character
+
+    -- ── Billboard GUI ──────────────────────────────────────
+    local billboard = character:FindFirstChild("NPCHealthDisplay")
+    if not billboard then
+        billboard      = Instance.new("BillboardGui")
+        billboard.Name = "NPCHealthDisplay"
+    end
+
+    billboard.Size         = BILLBOARD_SIZE
+    billboard.StudsOffset  = STUDS_OFFSET
+    billboard.AlwaysOnTop  = true
+    billboard.MaxDistance  = 80          -- hide label past 80 studs (perf)
+    billboard.Adornee      = getAdornee(character)
+    billboard.ResetOnSpawn = false
+
+    -- Ensure we have exactly one TextLabel
+    local label = billboard:FindFirstChildOfClass("TextLabel")
+    if not label then
+        label = Instance.new("TextLabel")
+        label.Parent = billboard
+    end
+    label.Size                  = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Font                  = Enum.Font.SourceSansBold
+    label.TextSize              = TEXT_SIZE
+    label.TextStrokeColor3      = Color3.new(0, 0, 0)
+    label.TextStrokeTransparency = 0.5
+    -- Scale text automatically on mobile
+    label.TextScaled            = isMobile
+
+    billboard.Parent = character
+    updateHealthText(billboard, humanoid)
+
+    -- ── Connections ────────────────────────────────────────
+    -- Health changed
+    connections[#connections + 1] =
+        humanoid:GetPropertyChangedSignal("Health"):Connect(function()
+            updateHealthText(billboard, humanoid)
+        end)
+
+    -- Auto-cleanup when NPC is removed
+    connections[#connections + 1] =
+        humanoid.AncestryChanged:Connect(function(_, parent)
+            if not parent then
+                cleanupNPC(humanoid)
+            end
+        end)
+
+    -- If head is added later, re-adorn
+    connections[#connections + 1] =
+        character.ChildAdded:Connect(function(child)
+            if child.Name == "Head" then
+                billboard.Adornee = child
+            end
+        end)
+
+    ACTIVE_NPCS[humanoid] = {
+        highlight   = highlight,
+        billboard   = billboard,
+        connections = connections,
+    }
+end
+
+-- ── Scan existing workspace ────────────────────────────────
+for _, desc in ipairs(workspace:GetDescendants()) do
+    if desc:IsA("Humanoid") then
+        task.defer(setupNPC, desc)  -- defer so it doesn't freeze on large maps
+    end
+end
+
+-- ── Watch for new NPCs (event-driven, no polling loop) ─────
+workspace.DescendantAdded:Connect(function(desc)
+    if desc:IsA("Humanoid") then
+        setupNPC(desc)
+    end
+end)
+
+-- ── Lightweight heartbeat check (replaces the 5s while loop) ──
+--    Only fires every 10 seconds and only scans ACTIVE_NPCS
+--    to verify nothing was silently orphaned.
+local lastScan = 0
+RunService.Heartbeat:Connect(function()
+    local now = tick()
+    if now - lastScan < 10 then return end
+    lastScan = now
+
+    for humanoid in pairs(ACTIVE_NPCS) do
+        local char = humanoid.Parent
+        if not char or not char.Parent then
+            cleanupNPC(humanoid)
+        end
+    end
+end)
