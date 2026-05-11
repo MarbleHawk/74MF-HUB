@@ -1,0 +1,9 @@
+local fishes = workspace.Game.Fishes
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local rootPart = character:WaitForChild("HumanoidRootPart")
+local runService = game:GetService("RunService")
+
+runService.RenderStepped:Connect(function()
+    local highestCash = 0
+    local highestFish = nil
