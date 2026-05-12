@@ -39,6 +39,5 @@ lua5.4 -e "local f, err = loadfile('ScriptName'); if f then print('OK') else pri
 ### Key caveats
 
 - Scripts **cannot be executed** outside the Roblox game client — they depend on Roblox-specific APIs and a script executor environment.
-- The `Dive Down Money` script has a pre-existing syntax error (missing `end` to close a function on line 7); this is in the original source.
-- The `74MF HUB` file (~622 KB) is obfuscated Lua and is not suitable for linting or syntax checking with standard tools.
+- The `74MF HUB` file (~622 KB) is obfuscated Lua and is not suitable for linting or syntax checking with standard tools. The YouTube link for the hub login **YT** button is set in your **unobfuscated** hub source as `HUB_YOUTUBE_URL`; the canonical URL to paste before obfuscation is in `dev/74mf-hub-youtube-url.lua`.
 - There are no automated tests, no CI/CD, and no build steps.
