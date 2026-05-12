@@ -1,9 +1,16 @@
--- Optional remote ragebot (Phantom Forces). Wrapped so failures do not break the rest of this script.
-pcall(function()
-	loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-BEST-PF-RAGEBOT-SCRIPT-WITH-KILL-ALL-*HUB-58274"))()
-end)
+-- Homohack: optional Phantom Forces ragebot (remote) + small rejoin GUI.
+-- Remote load is deferred so GUI still builds if HttpGet/loadstring fails.
 
--- PF Utility GUI - Reset & Rejoin only
+local RAGEBOT_URL = "https://rawscripts.net/raw/Universal-Script-BEST-PF-RAGEBOT-SCRIPT-WITH-KILL-ALL-*HUB-58274"
+
+task.spawn(function()
+	local ok, err = pcall(function()
+		loadstring(game:HttpGet(RAGEBOT_URL))()
+	end)
+	if not ok then
+		warn("[74MF Homohack] Remote script failed: " .. tostring(err))
+	end
+end)
 
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
@@ -22,10 +29,11 @@ frame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
 frame.BackgroundTransparency = 0.3
 frame.BorderSizePixel = 0
 frame.Active = true
-frame.Parent = sg
 pcall(function()
 	frame.Draggable = true
 end)
+frame.Parent = sg
+
 do
 	local c = Instance.new("UICorner")
 	c.CornerRadius = UDim.new(0, 6)
