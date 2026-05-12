@@ -39,5 +39,5 @@ lua5.4 -e "local f, err = loadfile('ScriptName'); if f then print('OK') else pri
 ### Key caveats
 
 - Scripts **cannot be executed** outside the Roblox game client — they depend on Roblox-specific APIs and a script executor environment.
-- The `74MF HUB` file (~622 KB) is obfuscated Lua and is not suitable for linting or syntax checking with standard tools. The YouTube link for the hub login **YT** button is set in your **unobfuscated** hub source as `HUB_YOUTUBE_URL`; the canonical URL to paste before obfuscation is in `dev/74mf-hub-youtube-url.lua`.
+- The `74MF HUB` file (~622 KB) is obfuscated Lua. If you maintain unobfuscated hub v3 source, see `docs/HUB_V3_SOURCE_FIX.md` and `scripts/fix-74mf-hub-source.py` for the common normKey / UICorner / YouTube URL fixes before obfuscation and is not suitable for linting or syntax checking with standard tools. The YouTube link for the hub login **YT** button is set in your **unobfuscated** hub source as `HUB_YOUTUBE_URL`; the canonical URL to paste before obfuscation is in `dev/74mf-hub-youtube-url.lua`.
 - There are no automated tests, no CI/CD, and no build steps.
