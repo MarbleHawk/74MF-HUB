@@ -60,12 +60,17 @@ if not hasDecompiler then
 	f.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 	f.BorderSizePixel = 0
 	f.Parent = errGui
-	Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
-	local p = Instance.new("UIPadding", f)
+	do
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 8)
+		corner.Parent = f
+	end
+	local p = Instance.new("UIPadding")
 	p.PaddingLeft = UDim.new(0, 12)
 	p.PaddingRight = UDim.new(0, 12)
 	p.PaddingTop = UDim.new(0, 10)
-	local t = Instance.new("TextLabel", f)
+	p.Parent = f
+	local t = Instance.new("TextLabel")
 	t.Size = UDim2.new(1, 0, 0, 22)
 	t.Position = UDim2.new(0, 0, 0, 0)
 	t.BackgroundTransparency = 1
@@ -74,7 +79,8 @@ if not hasDecompiler then
 	t.Font = Enum.Font.GothamBold
 	t.TextXAlignment = Enum.TextXAlignment.Left
 	t.Text = "No Decompiler Available"
-	local m = Instance.new("TextLabel", f)
+	t.Parent = f
+	local m = Instance.new("TextLabel")
 	m.Size = UDim2.new(1, 0, 0, 36)
 	m.Position = UDim2.new(0, 0, 0, 28)
 	m.BackgroundTransparency = 1
@@ -84,6 +90,7 @@ if not hasDecompiler then
 	m.TextXAlignment = Enum.TextXAlignment.Left
 	m.TextWrapped = true
 	m.Text = "Your executor does not have a working decompiler.\nPlease use an executor that supports decompiling."
+	m.Parent = f
 	task.wait(8)
 	pcall(function() errGui:Destroy() end)
 	return
@@ -163,13 +170,18 @@ frame.AnchorPoint = Vector2.new(0, 0)
 frame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 frame.BorderSizePixel = 0
 frame.Parent = screenGui
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
-local pad = Instance.new("UIPadding", frame)
+do
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = frame
+end
+local pad = Instance.new("UIPadding")
 pad.PaddingLeft = UDim.new(0, 10)
 pad.PaddingRight = UDim.new(0, 10)
 pad.PaddingTop = UDim.new(0, 8)
+pad.Parent = frame
 
-local titleLabel = Instance.new("TextLabel", frame)
+local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, 0, 0, 20)
 titleLabel.Position = UDim2.new(0, 0, 0, 0)
 titleLabel.BackgroundTransparency = 1
@@ -178,8 +190,9 @@ titleLabel.TextScaled = true
 titleLabel.Font = Enum.Font.GothamBold
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Text = BRAND .. " - " .. gameName
+titleLabel.Parent = frame
 
-local statusLabel = Instance.new("TextLabel", frame)
+local statusLabel = Instance.new("TextLabel")
 statusLabel.Size = UDim2.new(1, 0, 0, 18)
 statusLabel.Position = UDim2.new(0, 0, 0, 24)
 statusLabel.BackgroundTransparency = 1
@@ -188,8 +201,9 @@ statusLabel.TextScaled = true
 statusLabel.Font = Enum.Font.Gotham
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 statusLabel.Text = "Scanning..."
+statusLabel.Parent = frame
 
-local scriptLabel = Instance.new("TextLabel", frame)
+local scriptLabel = Instance.new("TextLabel")
 scriptLabel.Size = UDim2.new(1, 0, 0, 16)
 scriptLabel.Position = UDim2.new(0, 0, 0, 46)
 scriptLabel.BackgroundTransparency = 1
@@ -198,21 +212,32 @@ scriptLabel.TextScaled = true
 scriptLabel.Font = Enum.Font.Code
 scriptLabel.TextXAlignment = Enum.TextXAlignment.Left
 scriptLabel.Text = ""
+scriptLabel.Parent = frame
 
-local barBg = Instance.new("Frame", frame)
+local barBg = Instance.new("Frame")
 barBg.Size = UDim2.new(1, 0, 0, 14)
 barBg.Position = UDim2.new(0, 0, 0, 68)
 barBg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 barBg.BorderSizePixel = 0
-Instance.new("UICorner", barBg).CornerRadius = UDim.new(0, 4)
+barBg.Parent = frame
+do
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 4)
+	c.Parent = barBg
+end
 
-local barFill = Instance.new("Frame", barBg)
+local barFill = Instance.new("Frame")
 barFill.Size = UDim2.new(0, 0, 1, 0)
 barFill.BackgroundColor3 = Color3.fromRGB(255, 200, 50)
 barFill.BorderSizePixel = 0
-Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 4)
+barFill.Parent = barBg
+do
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 4)
+	c.Parent = barFill
+end
 
-local etaLabel = Instance.new("TextLabel", frame)
+local etaLabel = Instance.new("TextLabel")
 etaLabel.Size = UDim2.new(1, 0, 0, 14)
 etaLabel.Position = UDim2.new(0, 0, 0, 87)
 etaLabel.BackgroundTransparency = 1
@@ -221,8 +246,9 @@ etaLabel.TextScaled = true
 etaLabel.Font = Enum.Font.Gotham
 etaLabel.TextXAlignment = Enum.TextXAlignment.Left
 etaLabel.Text = ""
+etaLabel.Parent = frame
 
-local statsLabel = Instance.new("TextLabel", frame)
+local statsLabel = Instance.new("TextLabel")
 statsLabel.Size = UDim2.new(1, 0, 0, 14)
 statsLabel.Position = UDim2.new(0, 0, 0, 105)
 statsLabel.BackgroundTransparency = 1
@@ -231,8 +257,9 @@ statsLabel.TextScaled = true
 statsLabel.Font = Enum.Font.GothamBold
 statsLabel.TextXAlignment = Enum.TextXAlignment.Left
 statsLabel.Text = "Passed: 0  |  Failed: 0"
+statsLabel.Parent = frame
 
-local savedLabel = Instance.new("TextLabel", frame)
+local savedLabel = Instance.new("TextLabel")
 savedLabel.Size = UDim2.new(1, 0, 0, 14)
 savedLabel.Position = UDim2.new(0, 0, 0, 123)
 savedLabel.BackgroundTransparency = 1
@@ -241,6 +268,7 @@ savedLabel.TextScaled = true
 savedLabel.Font = Enum.Font.Gotham
 savedLabel.TextXAlignment = Enum.TextXAlignment.Left
 savedLabel.Text = "Folder: " .. FOLDER_NAME
+savedLabel.Parent = frame
 
 local passedCount = 0
 local failedCount = 0

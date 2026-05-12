@@ -1,24 +1,57 @@
-local player = game:GetService("Players").LocalPlayer
+-- 74MF — Dive Down anti-drown (teleport to Aquarium then snap back)
+-- Uses short WaitForChild timeouts so the hub button does not hang or error.
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local network = workspace:WaitForChild("Network", 10)
+if not network then
+	warn("[74MF] Dive Down No Drown: workspace.Network not found (join Dive Down).")
+	return
+end
+
+local teleportRemote = network:WaitForChild("Teleport-RemoteEvent", 10)
+if not teleportRemote or not teleportRemote:IsA("RemoteEvent") then
+	warn("[74MF] Dive Down No Drown: Teleport-RemoteEvent missing.")
+	return
+end
+
 local character = player.Character or player.CharacterAdded:Wait()
-local rootPart = character:WaitForChild("HumanoidRootPart")
-local teleportRemote = workspace:WaitForChild("Network"):WaitForChild("Teleport-RemoteEvent")
+local rootPart = character:WaitForChild("HumanoidRootPart", 15)
+if not rootPart then
+	warn("[74MF] Dive Down No Drown: HumanoidRootPart not found.")
+	return
+end
 
 local teleporting = false
 
 player.AttributeChanged:Connect(function(attr)
-    if attr == "IsDrowning" and player:GetAttribute("IsDrowning") == true then
-        if teleporting then return end
-        teleporting = true
+	if attr ~= "IsDrowning" or player:GetAttribute("IsDrowning") ~= true then
+		return
+	end
+	if teleporting then
+		return
+	end
+	teleporting = true
 
-        local originalPos = rootPart.CFrame
+	local ok, err = pcall(function()
+		local rp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if not rp then
+			return
+		end
+		local originalPos = rp.CFrame
+		teleportRemote:FireServer("Aquarium")
+		task.wait(0.2)
+		if rp.Parent then
+			rp.CFrame = originalPos
+		end
+	end)
 
-        teleportRemote:FireServer("Aquarium")
+	if not ok then
+		warn("[74MF] Dive Down No Drown: " .. tostring(err))
+	end
 
-        task.wait(0.2)
-        
-        rootPart.CFrame = originalPos
-        teleporting = false
-    end
+	teleporting = false
 end)
 
 -- https://scriptblox.com/script/Dive-Down-Anti-Drown-207940

@@ -1,9 +1,69 @@
-local fishes = workspace.Game.Fishes
-local player = game.Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local rootPart = character:WaitForChild("HumanoidRootPart")
-local runService = game:GetService("RunService")
+-- 74MF — Dive Down: follow highest-value fish in workspace.Game.Fishes
+-- Safe outside Dive Down: exits quietly instead of breaking the hub callback.
 
-runService.RenderStepped:Connect(function()
-    local highestCash = 0
-    local highestFish = nil
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local gameFolder = workspace:FindFirstChild("Game")
+local fishes = gameFolder and gameFolder:FindFirstChild("Fishes")
+
+if not fishes then
+	warn("[74MF] Dive Down Money: workspace.Game.Fishes not found (join Dive Down).")
+	return
+end
+
+local function getMoney(inst)
+	local attrs = { "Cash", "Money", "Value", "Worth", "Price", "SellPrice" }
+	for _, name in ipairs(attrs) do
+		local v = inst:GetAttribute(name)
+		if type(v) == "number" then
+			return v
+		end
+	end
+	for _, name in ipairs(attrs) do
+		local ch = inst:FindFirstChild(name, true)
+		if ch and ch:IsA("ValueBase") then
+			local v = ch.Value
+			if type(v) == "number" then
+				return v
+			end
+		end
+	end
+	return 0
+end
+
+local function getRoot()
+	local char = player.Character
+	if not char then
+		return nil
+	end
+	return char:FindFirstChild("HumanoidRootPart")
+end
+
+RunService.RenderStepped:Connect(function()
+	local root = getRoot()
+	if not root then
+		return
+	end
+	local best, bestAmt = nil, -1
+	for _, fish in ipairs(fishes:GetChildren()) do
+		local amt = getMoney(fish)
+		if amt > bestAmt then
+			bestAmt = amt
+			best = fish
+		end
+	end
+	if best and bestAmt > 0 then
+		local cf
+		if best:IsA("Model") then
+			local pp = best.PrimaryPart or best:FindFirstChildWhichIsA("BasePart")
+			cf = pp and pp.CFrame
+		elseif best:IsA("BasePart") then
+			cf = best.CFrame
+		end
+		if cf then
+			root.CFrame = cf
+		end
+	end
+end)
