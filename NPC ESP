@@ -77,7 +77,10 @@ local function applyGraphicsOptimizations()
     end)
 end
 
-applyGraphicsOptimizations()
+local _gfxOk, _gfxErr = pcall(applyGraphicsOptimizations)
+if not _gfxOk then
+	warn("[74MF] NPC ESP: graphics pass failed — " .. tostring(_gfxErr))
+end
 
 -- ============================================================
 --  NPC HEALTH DISPLAY
