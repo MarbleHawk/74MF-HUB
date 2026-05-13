@@ -32,8 +32,7 @@ end
 -- PET / EGG DEFINITIONS (isolated function → avoids Luau 200-local-per-chunk limit)
 -- =====================
 local function buildEggDefinitions()
-	-- v50: added Divine rarity (baby-blue, replaces the old "Variant" slot as the
-	-- super-rare drop). Original Variant color kept as fallback.
+	-- v55: Secret rarity (baby-blue; was "Divine"). Variant key kept for legacy saves.
 	local rarityColors = {
 		Common = Color3.fromRGB(180, 180, 180),
 		Uncommon = Color3.fromRGB(100, 220, 100),
@@ -41,20 +40,11 @@ local function buildEggDefinitions()
 		Epic = Color3.fromRGB(200, 80, 220),
 		Legendary = Color3.fromRGB(255, 200, 0),
 		Mythic = Color3.fromRGB(255, 120, 200),
-		Divine = Color3.fromRGB(160, 215, 255), -- baby blue
-		Variant = Color3.fromRGB(160, 215, 255), -- legacy alias for old save data
+		Secret = Color3.fromRGB(255, 50, 50), -- v56: Secret is red
+		Variant = Color3.fromRGB(255, 50, 50), -- legacy alias (red, was baby-blue)
 	}
 
-	-- v50: new hatch-odds weights per the user spec. These are *weights*
-	-- (rollPetFromList normalises by the total), not strict percentages:
-	--   Common  = 45  (split 22.5 / 22.5 across the two common slots)
-	--   Uncommon = 30
-	--   Rare     = 25
-	--   Epic     = 10
-	--   Legendary = 3
-	--   Mythic    = 0.1
-	--   Divine    = 0.01  (was "Variant" — super-rare top-tier drop)
-	local ch = { 22.5, 22.5, 30, 25, 10, 3, 0.1, 0.01 }
+	-- Hatch odds: first 7 weights fixed; slot 8 (Secret) weight is random per egg (inside loop).
 
 	-- Stock library (75 eggs): reused + EXTRA_EGG overrides + spec order → 99 eggs / 33 areas.
 	local stockEggVisual = {
@@ -2293,15 +2283,15 @@ local function buildEggDefinitions()
 		end
 	end
 
-	-- v50: slot 8 is the new Divine tier (baby-blue, ~0.01% before normalising).
+	-- v55: slot 8 is Secret (random weight per egg, built in loop).
 	local variantRarityByEggIdx = {}
 	for _ = 1, #eggVisual do
-		table.insert(variantRarityByEggIdx, "Divine")
+		table.insert(variantRarityByEggIdx, "Secret")
 	end
 
-	-- Egg costs: 99 eggs, first = 250 clicks, last ≈ 1 sexdecillion (1e51).
-	local EGG_COST_START = 250
-	local EGG_LAST_TARGET = 1e51
+	-- Egg costs: geometric ladder from EGG_COST_START to EGG_LAST_TARGET (99 eggs).
+	local EGG_COST_START = 600
+	local EGG_LAST_TARGET = 5e55
 	local EGG_COST_RATIO = (EGG_LAST_TARGET / EGG_COST_START) ^ (1 / 98)
 	local eggCosts = {}
 	do
@@ -2350,21 +2340,11 @@ local function buildEggDefinitions()
 	}
 	local AREA_UNLOCK_CLICKS = {}
 	AREA_UNLOCK_CLICKS[1] = 0
-	-- v49: area gating ~3× steeper. Previously 0.4× of the previous area's last
-	-- egg cost (≈980 clicks for area 2) which players blitzed past in seconds.
-	-- 1.2× makes each area a real spend instead of an instant unlock.
+	-- v55: each area costs 5–10% less than that area's first egg (random per script run).
 	for a = 2, NUM_AREAS do
-		local lastEggPrevArea = (a - 1) * 3
-		AREA_UNLOCK_CLICKS[a] = math.max(1500, math.floor(eggCosts[lastEggPrevArea] * 1.2))
-	end
-
-	-- Variant mult: 2× → 1e6 across 98 steps (same min/max as before, longer ladder).
-	local VARIANT_MIN = 2
-	local VARIANT_MAX = 1000000
-	local R_RATIO = (VARIANT_MAX / VARIANT_MIN) ^ (1 / 98)
-
-	local function tierVariantMult(eggIdx)
-		return VARIANT_MIN * (R_RATIO ^ (eggIdx - 1))
+		local firstEggThisArea = eggCosts[(a - 1) * 3 + 1]
+		local discount = 0.05 + math.random() * 0.05
+		AREA_UNLOCK_CLICKS[a] = math.max(50, math.floor(firstEggThisArea * (1 - discount)))
 	end
 
 	local globalSeenPet = {}
@@ -2377,21 +2357,26 @@ local function buildEggDefinitions()
 		return raw .. " (" .. n .. ")"
 	end
 
+	-- v56: pet mult uses WITHIN_STEP (slot-to-slot inside one egg) + EGG_STEP
+	-- (same slot, each new egg). The old global-slot index made egg2 slot1 = 56x
+	-- (rocket-jumping the curve); the new system resets the ladder per egg so
+	-- Puppy(egg1)=1, Turtle(egg2)=1, Chicken(egg3)=2, etc.
+	local WITHIN_STEP = 1.50
+	local EGG_STEP = 1.40
 	local EGG_DEFS = {}
 	for eggIdx = 1, #eggVisual do
 		local ev = eggVisual[eggIdx]
-		local V = tierVariantMult(eggIdx)
-		local nextV = eggIdx < #eggVisual and tierVariantMult(eggIdx + 1) or (V * R_RATIO)
-		local mMythic = nextV * 0.72
-
-		local mCommon1 = V * 0.10
-		local mCommon2 = V * 0.14
-		local mUncommon = V * 0.22
-		local mRare = V * 0.35
-		local mEpic = V * 0.50
-		local mLegendary = V * 0.72
-		local mVariant = V
-		local tierMults = { mCommon1, mCommon2, mUncommon, mRare, mEpic, mLegendary, mMythic, mVariant }
+		local baseC1 = EGG_STEP ^ (eggIdx - 1)
+		local tierMults = {}
+		for slot = 1, 8 do
+			tierMults[slot] = math.max(1, math.floor(baseC1 * (WITHIN_STEP ^ (slot - 1)) + 0.5))
+		end
+		-- v59: hatch weights raised so totals sum to ~135% (NOT normalised to 100).
+		-- Roll math (rollPetFromList) divides by the actual sum so this just makes
+		-- rarer slots fire more often relative to commons; the odds panel shows
+		-- the raw weight as the displayed percentage.
+		local secretWeight = 0.001 + math.random() * 0.008
+		local ch = { 40, 33, 27, 23, 10, 2.5, 0.15, secretWeight }
 
 		local variantRarity = variantRarityByEggIdx[eggIdx] or "Rare"
 
@@ -2496,6 +2481,17 @@ for _, p in ipairs(LEGACY_PETS) do
 	end
 end
 
+-- v55: Secret (and legacy Divine) pets show a mystery marker next to the emoji in UI.
+local function displayPetEmoji(pet)
+	if not pet then
+		return ""
+	end
+	if pet.rarity == "Secret" or pet.rarity == "Divine" then
+		return pet.emoji .. " \u{2753}"
+	end
+	return pet.emoji
+end
+
 local function rollPetFromList(list)
 	-- Floating-point roll over the list's total chance (chances no longer have to be ints).
 	-- This lets us hand out 0.1% Mythic and 0.06% Variant odds without rounding loss.
@@ -2515,9 +2511,11 @@ local function rollPetFromList(list)
 end
 
 -- Levels / shiny combat tuning (kept as locals — used before FX table exists)
-local PET_XP_PER_CLICK = 4
-local PET_LVL_STEP = 0.025
-local SHINY_BONUS = 1.75
+local PET_XP_PER_CLICK = 6
+local PET_LVL_STEP = 0.04
+-- v63: shiny pets give 3× their base contribution to BOTH power and gems
+-- (the gem hookup lives in FX.petGemMult / FX.gemsFromHatch below).
+local SHINY_BONUS = 3.0
 local SHINY_MERGE = 5
 local SHINY_SUFFIX = "#shiny"
 
@@ -2617,7 +2615,7 @@ local autoRebirthSelectedAmount = nil
 -- v41: rebirth 💎 bonus after a bulk (uses post-rebirth count, same pattern as v40).
 local function getRebirthGemBonusEachAfterBulk(newRebirthTotal)
 	local r = math.max(0, tonumber(newRebirthTotal) or 0)
-	return 1 + math.min(10, math.floor(r ^ 0.18))
+	return 1 + math.min(20, math.floor(r ^ 0.22))
 end
 
 -- v26 feature bundle: triple-hatch flag, egg-cooldown state + helpers, and the ripples
@@ -2646,14 +2644,18 @@ do local _t = {
 	-- a third "5x" button appears next to 1x and 3x on every egg card. Cost is ~10×
 	-- triple to keep it gated behind a meaningful gem-economy push.
 	fiveHatchUnlocked = false,
-	FIVE_HATCH_UNLOCK_COST = 100e9,
+	FIVE_HATCH_UNLOCK_COST = 250e6,
+	-- v60: per-egg Auto Hatch. Only one egg can auto-hatch at a time; switching
+	-- to another egg's Auto Hatch row stops the prior egg. n ∈ {1, 3, 5}; 3/5 fall
+	-- back to 1 if those upgrades aren't owned. Stored under FX so save / load can
+	-- round-trip it without polluting the chunk-local namespace.
+	autoHatch = { eggId = nil, n = 1 },
 	cooldownBought = 0,
 	COOLDOWN_BASE_S = 1.0,
-	COOLDOWN_MAX = 30,
-	-- v42: cooldown is dirt-cheap to start (50 💎) but ramps hard (×2.30/tier),
-	-- so the last few tiers cost trillions while tier 1 is grabbable in seconds.
-	COOLDOWN_BASE_GEMS = 50,
-	COOLDOWN_MULTI = 2.3,
+	COOLDOWN_MAX = 50,
+	-- v54: cooldown spread across 50 tiers, ramp ×1.62 for steeper end-game cliff.
+	COOLDOWN_BASE_GEMS = 100,
+	COOLDOWN_MULTI = 1.62,
 	lastHatchTickByEgg = {},
 	-- v42: shared global cooldown — set on every hatch, drives every egg card.
 	lastHatchTick = 0,
@@ -2664,6 +2666,10 @@ do local _t = {
 	particlesEnabled = true,    -- floating click emojis (+X) on click
 	autoClickFxEnabled = true,  -- ripple/animation when the AUTO-CLICKER fires
 	tooltipsEnabled = true,     -- pet hover tooltips in the equipped bar / circle
+	-- v61: small floating icons appear just under the click equation each time a
+	-- pet hatches (auto-hatch or manual). Default OFF so existing players don't
+	-- get a surprise visual when they reopen.
+	smallHatchIconsEnabled = false,
 	settingsCollapsed = false,
 	-- v28: shiny per-roll chance. Base 0.1% (level 0), max 1% (level 10). v32: cost ramp
 	-- softened (2B base ×1.92/tier) so the line stays reachable with hatch 💎 income.
@@ -2671,8 +2677,8 @@ do local _t = {
 	-- v42: 50 tiers, 0.1% → 5%. Cost ramp soft enough that maxing is a long
 	-- grind but not impossible (top tier ≈ 1 Qd 💎).
 	SHINY_MAX = 50,
-	SHINY_BASE_GEMS = 1e9,
-	SHINY_MULTI = 1.32,
+	SHINY_BASE_GEMS = 5e6,
+	SHINY_MULTI = 1.42,
 	SHINY_BASE_CHANCE = 0.001,
 	SHINY_MAX_CHANCE = 0.05,
 	-- v28: equipped-pet display mode. "bar" = horizontal bar at the bottom (default
@@ -2703,7 +2709,13 @@ do local _t = {
 	-- instead of ~×31000) — pairs with the new ×1.5 multiplier curve to extend
 	-- the late-game grind without slamming a wall on the player.
 	-- v42: 250B → 1dd over 10 tiers (geometric ratio ≈ 1175).
-	AURORA_COSTS = { 2.5e11, 3e14, 3.5e17, 4e20, 5e23, 6e26, 7e29, 8e32, 9e35, 1e39 },
+	-- v57: aurora costs trimmed ~25% (each tier now affects gems too, but the
+	-- player should still feel the ladder slide a little earlier).
+	-- v62: dramatic price reduction across the board — first aurora is now 2.5M
+	-- gems (down from 60Q). v63: dramatically WIDER spacing between tiers so
+	-- each aurora feels like a major milestone — 2.5M → 1B is a 400× jump, and
+	-- subsequent steps stay above 80×. Endgame lands around 350 septillion.
+	AURORA_COSTS = { 2.5e6, 1e9, 300e9, 75e12, 15e15, 2.5e18, 350e18, 40e21, 4e24, 350e24 },
 	AURORA_NAMES = {
 		"Spark", "Glow", "Radiance", "Brilliance", "Eternal",
 		"Empyrean", "Astral", "Cosmic", "Infinite", "Transcendent",
@@ -2902,14 +2914,14 @@ FX.guiScale = 100
 FX.GUI_SCALE_MIN = 1
 FX.GUI_SCALE_MAX = 200
 FX.EQ_BASE = 5
-FX.EQ_CAP = 15
+FX.EQ_CAP = 20
 FX.AC_BASE = 1.0
 FX.AC_FLOOR = 0.01
 FX.AC_MAX = 30
 FX.AC_RATIO = (FX.AC_FLOOR / FX.AC_BASE) ^ (1 / FX.AC_MAX)
-FX.AC_UPG_GEMS = 200
-FX.AC_UPG_MULTI = 2.0
-FX.MR_COST = 5e12
+FX.AC_UPG_GEMS = 250
+FX.AC_UPG_MULTI = 1.55
+FX.MR_COST = 150000
 FX.AR_COST = 25e12
 
 function FX.getAuroraMultiplier()
@@ -2990,8 +3002,8 @@ FX.AUTO_DEL_REFUND_BASE_PCT = 0.50
 FX.AUTO_DEL_REFUND_PER_TIER = 0.02
 -- Cost ramp: ~120 💎 tier 1, ×1.55/tier → ~3.7M 💎 at tier 25. Sits in the same
 -- gem-economy band as the equip-slot ladder.
-FX.AUTO_DEL_REFUND_BASE_GEMS = 120
-FX.AUTO_DEL_REFUND_MULTI = 1.55
+FX.AUTO_DEL_REFUND_BASE_GEMS = 5e6
+FX.AUTO_DEL_REFUND_MULTI = 1.20
 FX.autoDelRefundLevel = 0
 function FX.getAutoDelRefundPct()
 	local lvl = math.clamp(FX.autoDelRefundLevel or 0, 0, FX.AUTO_DEL_REFUND_MAX)
@@ -3004,9 +3016,36 @@ function FX.getAutoDelRefundUpgradeCost()
 	return math.floor(FX.AUTO_DEL_REFUND_BASE_GEMS * (FX.AUTO_DEL_REFUND_MULTI ^ FX.autoDelRefundLevel))
 end
 
+-- v59: per-rarity step for the pet-level → gem-multi contribution. Higher rarity
+-- pets translate each level into a fatter gem bonus, mirroring how `effective-
+-- MultForPetName` already scales by rarity for click power.
+FX.PET_GEM_STEP = {
+	Common = 0.0025,
+	Uncommon = 0.0035,
+	Rare = 0.005,
+	Epic = 0.0075,
+	Legendary = 0.01,
+	Mythic = 0.05,
+	Secret = 0.1,
+	Divine = 0.1, -- legacy alias
+	Variant = 0.05, -- legacy alias
+}
+function FX.petGemStep(rarity)
+	return FX.PET_GEM_STEP[rarity] or 0.0025
+end
+function FX.petGemMult(pet, lv, isShiny)
+	local step = FX.petGemStep(pet and pet.rarity or "Common")
+	local m = 1 + (math.max(1, lv or 1) - 1) * step
+	-- v63: shiny variants triple their gem contribution to match the SHINY_BONUS
+	-- power bump. Mirrors `isShinyKey(key) and SHINY_BONUS or 1` from the power
+	-- math so the inventory/tooltip Gems ×N line stays consistent with hatching.
+	if isShiny then
+		m = m * SHINY_BONUS
+	end
+	return m
+end
+
 function FX.gemsFromHatch(eggCost, rarity)
-	-- v50: Divine added as the new top-tier 💎 multiplier; old Variant kept for
-	-- back-compat with saves rolled before v50.
 	local rm = ({
 		Common = 1,
 		Uncommon = 1.35,
@@ -3014,13 +3053,35 @@ function FX.gemsFromHatch(eggCost, rarity)
 		Epic = 2.75,
 		Legendary = 4.6,
 		Mythic = 9.5,
-		Divine = 16,
+		Secret = 16,
+		Divine = 16, -- legacy saves / rolls
 		Variant = 12,
 	})[rarity] or 1
 	local c = math.max(1, tonumber(eggCost) or 1)
-	-- v42: hatch 💎 income — sublinear in egg cost so late eggs pay enough to
-	-- afford the next gem upgrade tier without making early hatches trivial.
-	local raw = (c ^ 0.32) * 0.18 * rm
+	-- v59: per-equipped-pet contribution to the gem multi now scales by the
+	-- pet's rarity (Common 0.0025/lv → Secret 0.1/lv). inventory, equippedPets,
+	-- petByName, baseNameFromKey are all chunk-level locals declared above this
+	-- function, so they're captured as upvalues.
+	local petBonus = 1
+	for _, key in ipairs(equippedPets) do
+		local t = inventory[key]
+		if type(t) == "table" and (t.c or 0) > 0 then
+			local pet = petByName[baseNameFromKey(key)]
+			local step = FX.petGemStep(pet and pet.rarity or "Common")
+			local lvlPart = (math.max(1, t.lv or 1) - 1) * step
+			-- v63: shiny variants contribute 3× as much per level to gem income,
+			-- matching their tripled power bump.
+			if isShinyKey(key) then
+				lvlPart = lvlPart * SHINY_BONUS
+			end
+			petBonus = petBonus + lvlPart
+		end
+	end
+	-- v57: aurora multiplies gem income the same amount it multiplies clicks.
+	local auroraBonus = FX.getAuroraMultiplier()
+	-- v58: half the flat scalar (1.20 → 0.60) so every hatch pays half what it
+	-- used to without changing the shape of the curve.
+	local raw = (c ^ 0.40) * 0.60 * rm * petBonus * auroraBonus
 	return math.max(1, math.floor(raw))
 end
 
@@ -3095,15 +3156,13 @@ local function effectiveMultForPetName(key)
 	end
 	local lvlPart = 1 + (t.lv - 1) * PET_LVL_STEP
 	local shinyPart = isShinyKey(key) and SHINY_BONUS or 1
-	-- v50: pet contribution tripled (0.4 → 1.2) — pets were under-pulling vs.
-	-- rebirths in the late-game ladder. Pairs with the new Divine rarity sitting
-	-- above Mythic on the multiplier curve.
-	return p.mult * lvlPart * shinyPart * 1.2
+	-- v55: integer SLOT_STEP mult from pet def — no extra factor.
+	return p.mult * lvlPart * shinyPart
 end
 
 -- Gem unlock: next bulk rebirth button tier (750, 1000, 1250, … +250 each).
 -- v42: base 500 / ×1.5 per tier — consistent geometric ramp (was ×1.75/25K).
-FX.UPG_BASE = 500
+FX.UPG_BASE = 600
 FX.UPG_MULTI = 1.5
 
 local function getUpgradeCost()
@@ -3118,16 +3177,45 @@ end
 -- Pet storage: base 250 + many gem upgrades (+25 pets each), capped at 5000.
 -- v42: gentle multi (×1.05) keeps the curve "consistent" — every tier feels
 -- buyable at the time you buy it. 190 upgrades takes you from 250 → 5000.
-FX.STOR_BASE = 250
+FX.STOR_BASE = 400
 FX.STOR_CAP = 5000
 FX.STOR_PER = 25
-FX.STOR_UPG_GEMS = 40
-FX.STOR_UPG_MULTI = 1.05
-FX.ESLOT_GEMS = 2000
-FX.ESLOT_MULTI = 2.0
+FX.STOR_UPG_GEMS = 20
+FX.STOR_UPG_MULTI = 1.25
+FX.ESLOT_GEMS = 1800
+FX.ESLOT_MULTI = 1.78
+
+-- v62: explicit lookup table for the 15 equip-slot upgrades (EQ_BASE 5 → EQ_CAP
+-- 20). Replaces the old flat 1800 × 1.78^n curve so we can keep the first 5
+-- slots affordable (1.8K → ~120K) and then ramp the last 10 hard, starting at
+-- 2.5M and topping out around 20B — matches the "last 10 way more expensive"
+-- request without making the early game miserable.
+FX.ESLOT_COSTS = {
+	1800,         -- slot  6
+	4500,         -- slot  7
+	12000,        -- slot  8
+	35000,        -- slot  9
+	120000,       -- slot 10
+	2500000,      -- slot 11 ← cliff: 2.5M
+	6500000,      -- slot 12
+	17000000,     -- slot 13
+	45000000,     -- slot 14
+	120000000,    -- slot 15
+	320000000,    -- slot 16
+	900000000,    -- slot 17
+	2500000000,   -- slot 18
+	7000000000,   -- slot 19
+	20000000000,  -- slot 20
+}
 
 local function getEquipSlotCost()
-	return math.floor(FX.ESLOT_GEMS * (FX.ESLOT_MULTI ^ equipSlotsBought))
+	local idx = equipSlotsBought + 1
+	local c = FX.ESLOT_COSTS[idx]
+	if c then return c end
+	-- Fallback if the table is ever shorter than EQ_CAP - EQ_BASE: continue from
+	-- the last tabled price using the legacy multiplier.
+	local last = FX.ESLOT_COSTS[#FX.ESLOT_COSTS] or FX.ESLOT_GEMS
+	return math.floor(last * (FX.ESLOT_MULTI ^ (idx - #FX.ESLOT_COSTS)))
 end
 
 local function getPetStorageCap()
@@ -3153,13 +3241,13 @@ local function getStorageUpgradeGemCost()
 	if isPetStorageMaxed() then
 		return nil
 	end
-	return math.max(40, math.floor(FX.STOR_UPG_GEMS * (FX.STOR_UPG_MULTI ^ storageUpgradesBought)))
+	return math.max(FX.STOR_UPG_GEMS, math.floor(FX.STOR_UPG_GEMS * (FX.STOR_UPG_MULTI ^ storageUpgradesBought)))
 end
 
 -- One-time data wipe for the v17 transition. We hold a token in the save file;
 -- if it's missing we discard the save (so the user starts fresh) and the
 -- next snapshot writes the token, so subsequent runs load normally.
-local DATA_RESET_TOKEN = "v17-reset-once"
+local DATA_RESET_TOKEN = "v56-rebalance"
 local saved = loadData()
 if saved and saved.resetToken ~= DATA_RESET_TOKEN then
 	saved = nil
@@ -3185,6 +3273,15 @@ if saved then
 	end
 	FX.tripleHatchUnlocked = saved.tripleHatchUnlocked == true
 	FX.fiveHatchUnlocked = saved.fiveHatchUnlocked == true
+	-- v60: restore Auto Hatch selection (if any).
+	if type(saved.autoHatch) == "table" then
+		local ah = saved.autoHatch
+		local n = tonumber(ah.n) or 1
+		if n ~= 1 and n ~= 3 and n ~= 5 then
+			n = 1
+		end
+		FX.autoHatch = { eggId = ah.eggId, n = n }
+	end
 	FX.auroraLevel = math.clamp(tonumber(saved.auroraLevel) or 0, 0, FX.AURORA_MAX)
 	FX.cooldownBought = math.clamp(tonumber(saved.cooldownUpgrades) or 0, 0, FX.COOLDOWN_MAX)
 	if saved.ripplesEnabled == false then
@@ -3198,6 +3295,10 @@ if saved then
 	end
 	if saved.tooltipsEnabled == false then
 		FX.tooltipsEnabled = false
+	end
+	-- v61: small hatch icons toggle (defaults off).
+	if saved.smallHatchIconsEnabled == true then
+		FX.smallHatchIconsEnabled = true
 	end
 	FX.settingsCollapsed = saved.settingsCollapsed == true
 	FX.shinyBought = math.clamp(tonumber(saved.shinyUpgrades) or 0, 0, FX.SHINY_MAX)
@@ -3276,8 +3377,8 @@ end
 -- rebirths over a long session — the wall is the egg ladder + gem upgrades, not
 -- the rebirth click cost. FX.RB_EXP keeps the *power* of each rebirth
 -- sublinear so 100 K rebirths doesn't trivialize late eggs.
-FX.RB_EXP = 0.55
-FX.RB_BASE = 25
+FX.RB_EXP = 0.60
+FX.RB_BASE = 10
 FX.RB_PER = 8
 
 local function getRebirthCost(rebirthIndex)
@@ -3701,7 +3802,11 @@ if saved then
 				autoDeleteRules[eggId] = {}
 				for rarity, on in pairs(raritySet) do
 					if on == true then
-						autoDeleteRules[eggId][rarity] = true
+						local r = rarity
+						if r == "Divine" then
+							r = "Secret"
+						end
+						autoDeleteRules[eggId][r] = true
 					end
 				end
 			end
@@ -3749,12 +3854,14 @@ local function snapshotForSave()
 		autoRebirthSelectedAmount = autoRebirthSelectedAmount,
 		tripleHatchUnlocked = FX.tripleHatchUnlocked,
 		fiveHatchUnlocked = FX.fiveHatchUnlocked,
+		autoHatch = { eggId = FX.autoHatch and FX.autoHatch.eggId or nil, n = FX.autoHatch and FX.autoHatch.n or 1 },
 		auroraLevel = FX.auroraLevel,
 		cooldownUpgrades = FX.cooldownBought,
 		ripplesEnabled = FX.ripplesEnabled,
 		particlesEnabled = FX.particlesEnabled,
 		autoClickFxEnabled = FX.autoClickFxEnabled,
 		tooltipsEnabled = FX.tooltipsEnabled,
+		smallHatchIconsEnabled = FX.smallHatchIconsEnabled,
 		settingsCollapsed = FX.settingsCollapsed,
 		shinyUpgrades = FX.shinyBought,
 		autoDelRefundLevel = FX.autoDelRefundLevel,
@@ -4105,6 +4212,134 @@ CPSLabel.Font = Enum.Font.Gotham
 CPSLabel.ZIndex = 101
 CPSLabel.Parent = HeaderFrame
 
+-- v61: small hatch icons strip. When FX.smallHatchIconsEnabled is true, every
+-- successful hatch (manual or auto) spawns a tiny rarity-colored pet emoji here
+-- that fades after ~1s. Parented to HeaderFrame so it inherits the header's
+-- UIScale and stays aligned to the click equation.
+local SmallHatchRow = Instance.new("Frame")
+SmallHatchRow.Name = "SmallHatchRow"
+SmallHatchRow.AnchorPoint = Vector2.new(0.5, 0)
+SmallHatchRow.Size = UDim2.new(0, 700, 0, 26)
+SmallHatchRow.Position = UDim2.new(0.5, 0, 0, 115)
+SmallHatchRow.BackgroundTransparency = 1
+SmallHatchRow.ZIndex = 101
+SmallHatchRow.ClipsDescendants = false
+SmallHatchRow.Parent = HeaderFrame
+local _smallHatchLayout = Instance.new("UIListLayout")
+_smallHatchLayout.FillDirection = Enum.FillDirection.Horizontal
+_smallHatchLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+_smallHatchLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+_smallHatchLayout.SortOrder = Enum.SortOrder.LayoutOrder
+_smallHatchLayout.Padding = UDim.new(0, 3)
+_smallHatchLayout.Parent = SmallHatchRow
+FX._smallHatchRow = SmallHatchRow
+FX._smallHatchSeq = 0
+FX._SMALL_HATCH_MAX = 14 -- cap visible icons so a giant hatch burst doesn't overflow
+
+function FX.spawnSmallHatchIcon(pet)
+	if not FX.smallHatchIconsEnabled then return end
+	if not pet then return end
+	local row = FX._smallHatchRow
+	if not row or not row.Parent then return end
+	-- Trim oldest icons if we're over the cap (skip the layout child).
+	local kids = row:GetChildren()
+	local iconCount = 0
+	for _, k in ipairs(kids) do
+		if k:IsA("GuiObject") then iconCount = iconCount + 1 end
+	end
+	if iconCount >= FX._SMALL_HATCH_MAX then
+		local oldest, oldestOrder = nil, math.huge
+		for _, k in ipairs(kids) do
+			if k:IsA("GuiObject") and k.LayoutOrder < oldestOrder then
+				oldest, oldestOrder = k, k.LayoutOrder
+			end
+		end
+		if oldest then oldest:Destroy() end
+	end
+	FX._smallHatchSeq = FX._smallHatchSeq + 1
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(0, 26, 0, 26)
+	lbl.BackgroundColor3 = rarityColors[pet.rarity] or Color3.fromRGB(60, 60, 80)
+	lbl.BackgroundTransparency = 0.35
+	lbl.BorderSizePixel = 0
+	lbl.Text = displayPetEmoji(pet)
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lbl.TextSize = 18
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextXAlignment = Enum.TextXAlignment.Center
+	lbl.TextYAlignment = Enum.TextYAlignment.Center
+	lbl.ZIndex = 102
+	lbl.LayoutOrder = FX._smallHatchSeq
+	lbl.Parent = row
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = lbl
+	local st = Instance.new("UIStroke"); st.Thickness = 1; st.Color = Color3.fromRGB(20, 20, 30); st.Parent = lbl
+	task.delay(0.85, function()
+		if not lbl or not lbl.Parent then return end
+		local tw = TweenService:Create(lbl, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundTransparency = 1, TextTransparency = 1,
+		})
+		tw:Play()
+		task.delay(0.4, function()
+			if lbl and lbl.Parent then lbl:Destroy() end
+		end)
+	end)
+end
+
+-- v63: brief centered "Saved" splash for the manual Save Data button. Spawns a
+-- floating chip in the middle of the screen that fades out after ~0.9s. Always
+-- re-creates fresh so spamming the button still feels responsive.
+function FX.showSavedSplash()
+	if not ClickerGui or not ClickerGui.Parent then return end
+	-- Tear down any prior splash so consecutive clicks don't pile up.
+	local prior = ClickerGui:FindFirstChild("_SavedSplash")
+	if prior then prior:Destroy() end
+	local splash = Instance.new("Frame")
+	splash.Name = "_SavedSplash"
+	splash.AnchorPoint = Vector2.new(0.5, 0.5)
+	splash.Position = UDim2.new(0.5, 0, 0.5, 0)
+	splash.Size = UDim2.new(0, 240, 0, 90)
+	splash.BackgroundColor3 = Color3.fromRGB(30, 90, 55)
+	splash.BackgroundTransparency = 0.05
+	splash.BorderSizePixel = 0
+	splash.ZIndex = 500
+	splash.Parent = ClickerGui
+	local sc = Instance.new("UICorner"); sc.CornerRadius = UDim.new(0, 14); sc.Parent = splash
+	local ss = Instance.new("UIStroke"); ss.Thickness = 2; ss.Color = Color3.fromRGB(120, 230, 160); ss.Parent = splash
+	local lbl = Instance.new("TextLabel")
+	lbl.AnchorPoint = Vector2.new(0.5, 0.5)
+	lbl.Position = UDim2.new(0.5, 0, 0.5, 0)
+	lbl.Size = UDim2.new(1, -20, 1, -20)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = "\u{1F4BE}  Saved"
+	lbl.TextColor3 = Color3.fromRGB(240, 255, 245)
+	lbl.TextSize = 28
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextXAlignment = Enum.TextXAlignment.Center
+	lbl.TextYAlignment = Enum.TextYAlignment.Center
+	lbl.ZIndex = 501
+	lbl.Parent = splash
+	-- Pop in a touch (scale 0.85 → 1) and fade out at the end.
+	splash.Size = UDim2.new(0, 200, 0, 76)
+	TweenService:Create(splash, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, 240, 0, 90),
+	}):Play()
+	task.delay(0.7, function()
+		if not splash or not splash.Parent then return end
+		TweenService:Create(splash, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundTransparency = 1,
+		}):Play()
+		TweenService:Create(lbl, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			TextTransparency = 1,
+		}):Play()
+		TweenService:Create(ss, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Transparency = 1,
+		}):Play()
+		task.delay(0.4, function()
+			if splash and splash.Parent then splash:Destroy() end
+		end)
+	end)
+end
+
 -- Click button — parented to ClickerGui (not GameFrame) so it is immune to
 -- the UIScale applied on GameFrame by the resize arrows.
 local ClickButton = Instance.new("TextButton")
@@ -4200,7 +4435,8 @@ end
 -- or delete buttons — read-only stats panel. All locals scoped to this `do` block to
 -- keep them out of the chunk-level Luau register pool.
 do
-	local TIP_W, TIP_H = 170, 130
+	-- v57: +18 px taller for the per-pet gem-multi line under Power.
+	local TIP_W, TIP_H = 170, 148
 	local tip = Instance.new("Frame")
 	tip.Size = UDim2.new(0, TIP_W, 0, TIP_H)
 	tip.Position = UDim2.new(0, 0, 0, 0)
@@ -4271,9 +4507,21 @@ do
 	powerLbl.ZIndex = 801
 	powerLbl.Parent = tip
 
+	-- v57: gem multiplier this pet contributes when equipped (1 + (lv-1)*0.0025).
+	local gemLbl = Instance.new("TextLabel")
+	gemLbl.Size = UDim2.new(1, -10, 0, 14)
+	gemLbl.Position = UDim2.new(0, 5, 0, 108)
+	gemLbl.BackgroundTransparency = 1
+	gemLbl.Text = ""
+	gemLbl.TextColor3 = Color3.fromRGB(140, 220, 255)
+	gemLbl.TextSize = 12
+	gemLbl.Font = Enum.Font.GothamBold
+	gemLbl.ZIndex = 801
+	gemLbl.Parent = tip
+
 	local shinyTag = Instance.new("TextLabel")
 	shinyTag.Size = UDim2.new(1, -10, 0, 14)
-	shinyTag.Position = UDim2.new(0, 5, 0, 108)
+	shinyTag.Position = UDim2.new(0, 5, 0, 126)
 	shinyTag.BackgroundTransparency = 1
 	shinyTag.Text = ""
 	shinyTag.TextColor3 = Color3.fromRGB(255, 235, 140)
@@ -4301,13 +4549,14 @@ do
 		end
 		local shinyOn = isShinyKey(key)
 		local t = invEnsure(key)
-		emoji.Text = pet.emoji
+		emoji.Text = displayPetEmoji(pet)
 		nameLbl.Text = (shinyOn and "Shiny " or "") .. pet.name
 		nameLbl.TextColor3 = rarityColors[pet.rarity] or Color3.fromRGB(255, 255, 255)
 		rarityLbl.Text = pet.rarity
 		rarityLbl.TextColor3 = rarityColors[pet.rarity] or Color3.fromRGB(200, 200, 200)
 		lvlLbl.Text = string.format("Lv %d  ·  XP %d/%d", t.lv, t.xp, xpToNextLevel(t.lv))
 		powerLbl.Text = "Power \u{00D7}" .. formatMultiplier(effectiveMultForPetName(key))
+		gemLbl.Text = string.format("Gems \u{00D7}%.4f", FX.petGemMult(pet, t.lv, shinyOn))
 		shinyTag.Text = shinyOn and "\u{2728} Shiny pet" or ""
 
 		-- Position the tooltip just above the slot, clamped inside GameFrame so it
@@ -4454,7 +4703,7 @@ function FX.refreshPetCircle()
 			local pet = petByName[baseNameFromKey(key)]
 			local shinyOn = isShinyKey(key)
 			if pet then
-				s.Text = pet.emoji
+				s.Text = displayPetEmoji(pet)
 				s.TextColor3 = rarityColors[pet.rarity]
 				s.BackgroundColor3 = shinyOn and Color3.fromRGB(70, 58, 22) or Color3.fromRGB(35, 28, 65)
 				s.Visible = true
@@ -4496,7 +4745,7 @@ local function refreshEquippedBar()
 			local pet = petByName[baseNameFromKey(key)]
 			local shinyOn = isShinyKey(key)
 			if pet then
-				lbl.Text = pet.emoji
+				lbl.Text = displayPetEmoji(pet)
 				lbl.TextColor3 = rarityColors[pet.rarity]
 				lbl.BackgroundColor3 = shinyOn and Color3.fromRGB(70, 58, 22) or Color3.fromRGB(35, 28, 65)
 				-- v30: tooltip lookup key.
@@ -4574,7 +4823,8 @@ local INV_OVERLAY_W, INV_OVERLAY_H, INV_CELL_X, INV_CELL_Y
 	INV_OVERLAY_W = 1000
 	INV_OVERLAY_H = 700
 	INV_CELL_X = 148
-	INV_CELL_Y = 238
+	-- v57: +18 px taller to fit the per-pet gem-multi line under Power.
+	INV_CELL_Y = 256
 
 	InvOverlay = Instance.new("Frame")
 	InvOverlay.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -4990,7 +5240,9 @@ end)()
 -- =====================
 local refreshSettingsPanel = function() end
 ;(function()
-	local SETTINGS_FULL_H = 696
+	-- v61: +44 height to fit the new "Small Hatch Icons" toggle slot.
+	-- v63: +40 more to fit the new "Save Data" button above Reset All Data.
+	local SETTINGS_FULL_H = 780
 	local SETTINGS_COLLAPSED_H = 50
 	local function settingsScaledW()
 		return math.floor(FX._SETTINGS_BASE_W * FX.guiScale / 100)
@@ -5214,11 +5466,14 @@ local refreshSettingsPanel = function() end
 	makePerfRow(100, "\u{2728} Particles", "particlesEnabled", "\u{2728} Click particles ON", "\u{2728} Click particles OFF")
 	makePerfRow(144, "\u{1F501} Auto-Click FX", "autoClickFxEnabled", "\u{1F501} Auto-click FX ON", "\u{1F501} Auto-click FX OFF")
 	makePerfRow(188, "\u{1F4A1} Pet Tooltips", "tooltipsEnabled", "\u{1F4A1} Tooltips ON", "\u{1F4A1} Tooltips OFF")
+	-- v61: Small Hatch Icons toggle (sits between Pet Tooltips and UI Scale).
+	makePerfRow(232, "\u{1F95A} Small Hatch Icons", "smallHatchIconsEnabled",
+		"\u{1F95A} Small hatch icons ON", "\u{1F95A} Small hatch icons OFF")
 
 	-- UI Scale slider (1-200, default 100) + reset button
 	local scaleRow = Instance.new("Frame")
 	scaleRow.Size = UDim2.new(1, -16, 0, 82)
-	scaleRow.Position = UDim2.new(0, 8, 0, 232)
+	scaleRow.Position = UDim2.new(0, 8, 0, 276)
 	scaleRow.BackgroundColor3 = Color3.fromRGB(22, 22, 38)
 	scaleRow.BorderSizePixel = 0
 	scaleRow.ZIndex = 102
@@ -5435,7 +5690,7 @@ local refreshSettingsPanel = function() end
 	-- Pets-mode toggle row (shifted down for scale slider).
 	local petsRow = Instance.new("Frame")
 	petsRow.Size = UDim2.new(1, -16, 0, 56)
-	petsRow.Position = UDim2.new(0, 8, 0, 322)
+	petsRow.Position = UDim2.new(0, 8, 0, 366)
 	petsRow.BackgroundColor3 = Color3.fromRGB(22, 22, 38)
 	petsRow.BorderSizePixel = 0
 	petsRow.ZIndex = 102
@@ -5507,7 +5762,7 @@ local refreshSettingsPanel = function() end
 	-- v42: Bumped up by ~50px (took the slot the reset button used to live in).
 	local codeLbl = Instance.new("TextLabel")
 	codeLbl.Size = UDim2.new(1, -16, 0, 16)
-	codeLbl.Position = UDim2.new(0, 8, 0, 382)
+	codeLbl.Position = UDim2.new(0, 8, 0, 426)
 	codeLbl.BackgroundTransparency = 1
 	codeLbl.Text = "\u{1F511} Code"
 	codeLbl.TextColor3 = Color3.fromRGB(190, 195, 230)
@@ -5519,7 +5774,7 @@ local refreshSettingsPanel = function() end
 
 	local codeBox = Instance.new("TextBox")
 	codeBox.Size = UDim2.new(1, -16, 0, 30)
-	codeBox.Position = UDim2.new(0, 8, 0, 402)
+	codeBox.Position = UDim2.new(0, 8, 0, 446)
 	codeBox.BackgroundColor3 = Color3.fromRGB(22, 22, 38)
 	codeBox.BorderSizePixel = 0
 	codeBox.PlaceholderText = "enter code…"
@@ -5569,7 +5824,7 @@ local refreshSettingsPanel = function() end
 
 	local codeHint = Instance.new("TextLabel")
 	codeHint.Size = UDim2.new(1, -16, 0, 14)
-	codeHint.Position = UDim2.new(0, 8, 0, 436)
+	codeHint.Position = UDim2.new(0, 8, 0, 480)
 	codeHint.BackgroundTransparency = 1
 	codeHint.Text = "Press Enter to redeem"
 	codeHint.TextColor3 = Color3.fromRGB(120, 125, 160)
@@ -5583,7 +5838,7 @@ local refreshSettingsPanel = function() end
 	-- table (K → DC) so players can decode big numbers without leaving the game.
 	local abbrevBtn = Instance.new("TextButton")
 	abbrevBtn.Size = UDim2.new(1, -16, 0, 28)
-	abbrevBtn.Position = UDim2.new(0, 8, 0, 458)
+	abbrevBtn.Position = UDim2.new(0, 8, 0, 502)
 	abbrevBtn.BackgroundColor3 = Color3.fromRGB(60, 80, 160)
 	abbrevBtn.BorderSizePixel = 0
 	abbrevBtn.Text = "\u{1F523} Number Abbreviations"
@@ -5607,7 +5862,7 @@ local refreshSettingsPanel = function() end
 	-- bot; until then the panel just shows your current local stat as a teaser.
 	local lbHeader = Instance.new("TextLabel")
 	lbHeader.Size = UDim2.new(1, -16, 0, 18)
-	lbHeader.Position = UDim2.new(0, 8, 0, 496)
+	lbHeader.Position = UDim2.new(0, 8, 0, 540)
 	lbHeader.BackgroundTransparency = 1
 	lbHeader.Text = "\u{1F3C6} Leaderboards"
 	lbHeader.TextColor3 = Color3.fromRGB(220, 200, 90)
@@ -5619,7 +5874,7 @@ local refreshSettingsPanel = function() end
 
 	local lbButtonRow = Instance.new("Frame")
 	lbButtonRow.Size = UDim2.new(1, -16, 0, 32)
-	lbButtonRow.Position = UDim2.new(0, 8, 0, 520)
+	lbButtonRow.Position = UDim2.new(0, 8, 0, 564)
 	lbButtonRow.BackgroundTransparency = 1
 	lbButtonRow.ZIndex = 102
 	lbButtonRow.Parent = SettingsContent
@@ -5631,7 +5886,7 @@ local refreshSettingsPanel = function() end
 
 	local lbPanel = Instance.new("Frame")
 	lbPanel.Size = UDim2.new(1, -16, 0, 86)
-	lbPanel.Position = UDim2.new(0, 8, 0, 556)
+	lbPanel.Position = UDim2.new(0, 8, 0, 600)
 	lbPanel.BackgroundColor3 = Color3.fromRGB(22, 22, 38)
 	lbPanel.BorderSizePixel = 0
 	lbPanel.ZIndex = 102
@@ -5695,12 +5950,39 @@ local refreshSettingsPanel = function() end
 		end)
 	end
 
+	-- v63: Manual "Save Data" button sits right above Reset All Data. Clicking
+	-- snapshots the game state to disk and flashes a centered "Saved" splash.
+	do
+		local saveBtn = Instance.new("TextButton")
+		saveBtn.Size = UDim2.new(1, -16, 0, 30)
+		saveBtn.Position = UDim2.new(0, 8, 0, 696)
+		saveBtn.BackgroundColor3 = Color3.fromRGB(50, 130, 80)
+		saveBtn.BorderSizePixel = 0
+		saveBtn.Text = "\u{1F4BE} Save Data"
+		saveBtn.TextColor3 = Color3.fromRGB(240, 255, 245)
+		saveBtn.TextSize = 13
+		saveBtn.Font = Enum.Font.GothamBold
+		saveBtn.ZIndex = 103
+		saveBtn.Parent = SettingsContent
+		local sbc = Instance.new("UICorner")
+		sbc.CornerRadius = UDim.new(0, 6)
+		sbc.Parent = saveBtn
+		saveBtn.MouseButton1Click:Connect(function()
+			saveData(snapshotForSave())
+			if FX.showSavedSplash then
+				FX.showSavedSplash()
+			else
+				showNotification("\u{1F4BE} Saved", Color3.fromRGB(60, 180, 100))
+			end
+		end)
+	end
+
 	-- v42: Reset All Data was moved here, BELOW the leaderboards block, per user
 	-- request. Two-step (button → confirm) so a stray click doesn't nuke
-	-- progression. y=562 sits just under the leaderboards panel (466 + 86 + 10).
+	-- progression. v63: bumped to y=736 to make room for the Save Data button.
 	local resetBtn = Instance.new("TextButton")
 	resetBtn.Size = UDim2.new(1, -16, 0, 30)
-	resetBtn.Position = UDim2.new(0, 8, 0, 652)
+	resetBtn.Position = UDim2.new(0, 8, 0, 736)
 	resetBtn.BackgroundColor3 = Color3.fromRGB(150, 40, 60)
 	resetBtn.BorderSizePixel = 0
 	resetBtn.Text = "\u{1F5D1}\u{FE0F} Reset All Data"
@@ -5802,8 +6084,8 @@ end
 local openAutoDeleteGui = function(_) end
 
 ;(function()
-	-- v50: Divine added as a togglable auto-delete tier (sits above Mythic).
-	local AUTO_DELETE_RARITIES = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic", "Divine" }
+	-- v55: Secret tier for auto-delete UI (legacy "Divine" rules migrated on load).
+	local AUTO_DELETE_RARITIES = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic", "Secret" }
 
 	local function setAutoDelete(eggId, rarity, value)
 		if not autoDeleteRules[eggId] then
@@ -6169,7 +6451,10 @@ end
 
 local UpgradesScroll = makeScroll(false)
 do
+	-- v56: explicit LayoutOrder sort so we can group repeatable upgrades above
+	-- one-time unlocks (with a divider in between).
 	local l = Instance.new("UIListLayout"); l.Padding = UDim.new(0, 8)
+	l.SortOrder = Enum.SortOrder.LayoutOrder
 	l.HorizontalAlignment = Enum.HorizontalAlignment.Center; l.Parent = UpgradesScroll
 	local p = Instance.new("UIPadding"); p.PaddingTop = UDim.new(0, 8); p.Parent = UpgradesScroll
 end
@@ -6224,7 +6509,7 @@ do
 	headerBody.Position = UDim2.new(0, 8, 0, 34)
 	headerBody.BackgroundTransparency = 1
 	headerBody.Text =
-		"Auroras are end-game ascensions. Each tier raises your current aurora multiplier — applied after rebirths × pets — making every click hit harder."
+		"Auroras are end-game ascensions. Each tier raises your current aurora multiplier — applied after rebirths × pets — multiplying BOTH click power AND hatch gem income by the same amount."
 	headerBody.TextColor3 = Color3.fromRGB(170, 175, 215)
 	headerBody.TextSize = 12
 	headerBody.Font = Enum.Font.Gotham
@@ -6261,7 +6546,7 @@ do
 		titleLbl.Size = UDim2.new(1, -16, 0, 24)
 		titleLbl.Position = UDim2.new(0, 10, 0, 8)
 		titleLbl.BackgroundTransparency = 1
-		titleLbl.Text = string.format("%s Aurora %d \u{2014} %s  (\u{00D7}%d)", em, tier, nm, mult)
+		titleLbl.Text = string.format("%s Aurora %d \u{2014} %s  (\u{00D7}%d clicks & gems)", em, tier, nm, mult)
 		titleLbl.TextColor3 = Color3.fromRGB(230, 210, 255)
 		titleLbl.TextSize = 15
 		titleLbl.Font = Enum.Font.GothamBold
@@ -6498,7 +6783,8 @@ local function buildEggCard(def, isFirst, layoutOrder)
 	-- the variant pet (whose rarity badge is randomized to U/R/E/L per egg) sits
 	-- next to the other pet that shares its rarity, instead of floating to the top.
 	local rarityTier = {
-		Divine = 70, -- v50: new top-tier rarity, sorts above Mythic in odds panel
+		Secret = 70,
+		Divine = 70, -- legacy pet rows only
 		Mythic = 60,
 		Legendary = 50,
 		Epic = 40,
@@ -6515,21 +6801,15 @@ local function buildEggCard(def, isFirst, layoutOrder)
 		end
 		return a.mult > b.mult
 	end)
-	-- v50: chances are stored as weights now (Common 22.5, …, Divine 0.01) and
-	-- summed to ~113.11 — normalise to a real % for the odds panel so players
-	-- see actual roll probabilities instead of weight numbers.
-	local oddsTotal = 0
-	for _, p in ipairs(def.list) do
-		oddsTotal = oddsTotal + p.chance
-	end
-	if oddsTotal <= 0 then
-		oddsTotal = 1
-	end
+	-- v59: chances are stored as raw weights — sum to ~135% per the new ladder.
+	-- Show the raw weight as the displayed percentage so what the player sees
+	-- matches the spec ("Common 1 = 40%", "Common 2 = 33%", …). The roll math
+	-- in rollPetFromList already handles arbitrary totals.
 	for petIdx, pet in ipairs(sortedOdds) do
 		local row = Instance.new("TextLabel")
 		row.Size = UDim2.new(1, 0, 0, 20)
 		row.BackgroundTransparency = 1
-		local pct = pet.chance / oddsTotal * 100
+		local pct = pet.chance
 		local chanceText
 		if pct >= 1 then
 			chanceText = string.format("%.1f%%", pct)
@@ -6540,7 +6820,7 @@ local function buildEggCard(def, isFirst, layoutOrder)
 		end
 		row.Text = string.format(
 			"%s %s  \u{2014}  %s  (%s)  \u{00D7}%s",
-			pet.emoji,
+			displayPetEmoji(pet),
 			pet.name,
 			pet.rarity,
 			chanceText,
@@ -6578,6 +6858,124 @@ local function buildEggCard(def, isFirst, layoutOrder)
 		openAutoDeleteGui(capId)
 	end)
 
+	-- v60: Auto Hatch row — lives under the per-egg auto-delete button in the
+	-- odds drop-down. Mirrors the main hatch row: a wide "Auto Hatch" button with
+	-- 3x / 5x squares docked to the right that appear once their upgrades are
+	-- bought. Below the row, a red "Stop Auto Hatch" button is shown only while
+	-- THIS egg is the active auto-hatch target.
+	local autoHatchRow = Instance.new("Frame")
+	autoHatchRow.Name = "AutoHatchRow"
+	autoHatchRow.Size = UDim2.new(1, 0, 0, 30)
+	autoHatchRow.BackgroundTransparency = 1
+	autoHatchRow.LayoutOrder = 101
+	autoHatchRow.Parent = oddsPanel
+
+	local autoHatchBtn = Instance.new("TextButton")
+	autoHatchBtn.Name = "AutoHatchBtn"
+	autoHatchBtn.Size = UDim2.new(1, 0, 1, 0)
+	autoHatchBtn.Position = UDim2.new(0, 0, 0, 0)
+	autoHatchBtn.BackgroundColor3 = Color3.fromRGB(50, 90, 60)
+	autoHatchBtn.BorderSizePixel = 0
+	autoHatchBtn.Text = "\u{267B}\u{FE0F} Auto Hatch"
+	autoHatchBtn.TextColor3 = Color3.fromRGB(220, 255, 230)
+	autoHatchBtn.TextSize = 13
+	autoHatchBtn.Font = Enum.Font.GothamBold
+	autoHatchBtn.ZIndex = 105
+	autoHatchBtn.Parent = autoHatchRow
+	local ahbc = Instance.new("UICorner")
+	ahbc.CornerRadius = UDim.new(0, 6)
+	ahbc.Parent = autoHatchBtn
+
+	local autoHatchBtn3x = Instance.new("TextButton")
+	autoHatchBtn3x.Name = "AutoHatchBtn3x"
+	autoHatchBtn3x.Size = UDim2.new(0, 44, 1, 0)
+	autoHatchBtn3x.Position = UDim2.new(1, -44, 0, 0)
+	autoHatchBtn3x.BackgroundColor3 = Color3.fromRGB(40, 70, 50)
+	autoHatchBtn3x.BorderSizePixel = 0
+	autoHatchBtn3x.Text = "3x"
+	autoHatchBtn3x.TextColor3 = Color3.fromRGB(220, 255, 230)
+	autoHatchBtn3x.TextSize = 14
+	autoHatchBtn3x.Font = Enum.Font.GothamBold
+	autoHatchBtn3x.ZIndex = 106
+	autoHatchBtn3x.Visible = false
+	autoHatchBtn3x.Parent = autoHatchRow
+	local ah3bc = Instance.new("UICorner")
+	ah3bc.CornerRadius = UDim.new(0, 6)
+	ah3bc.Parent = autoHatchBtn3x
+
+	local autoHatchBtn5x = Instance.new("TextButton")
+	autoHatchBtn5x.Name = "AutoHatchBtn5x"
+	autoHatchBtn5x.Size = UDim2.new(0, 44, 1, 0)
+	autoHatchBtn5x.Position = UDim2.new(1, -44, 0, 0)
+	autoHatchBtn5x.BackgroundColor3 = Color3.fromRGB(35, 60, 80)
+	autoHatchBtn5x.BorderSizePixel = 0
+	autoHatchBtn5x.Text = "5x"
+	autoHatchBtn5x.TextColor3 = Color3.fromRGB(220, 240, 255)
+	autoHatchBtn5x.TextSize = 14
+	autoHatchBtn5x.Font = Enum.Font.GothamBold
+	autoHatchBtn5x.ZIndex = 106
+	autoHatchBtn5x.Visible = false
+	autoHatchBtn5x.Parent = autoHatchRow
+	local ah5bc = Instance.new("UICorner")
+	ah5bc.CornerRadius = UDim.new(0, 6)
+	ah5bc.Parent = autoHatchBtn5x
+
+	-- Red STOP button — visible only when this egg is the active auto-hatch egg.
+	local stopAutoHatchBtn = Instance.new("TextButton")
+	stopAutoHatchBtn.Name = "StopAutoHatchBtn"
+	stopAutoHatchBtn.Size = UDim2.new(1, 0, 0, 26)
+	stopAutoHatchBtn.LayoutOrder = 102
+	stopAutoHatchBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 50)
+	stopAutoHatchBtn.BorderSizePixel = 0
+	stopAutoHatchBtn.Text = "\u{1F6D1} Stop Auto Hatch"
+	stopAutoHatchBtn.TextColor3 = Color3.fromRGB(255, 235, 235)
+	stopAutoHatchBtn.TextSize = 13
+	stopAutoHatchBtn.Font = Enum.Font.GothamBold
+	stopAutoHatchBtn.ZIndex = 105
+	stopAutoHatchBtn.Visible = false
+	stopAutoHatchBtn.Parent = oddsPanel
+	local sahbc = Instance.new("UICorner")
+	sahbc.CornerRadius = UDim.new(0, 6)
+	sahbc.Parent = stopAutoHatchBtn
+
+	-- Click handlers — buttons just *toggle the selection*; the heartbeat loop
+	-- below performs the actual hatches.
+	local function selectAutoHatch(n)
+		local cur = FX.autoHatch or { eggId = nil, n = 1 }
+		if cur.eggId == capId and cur.n == n then
+			-- Same egg + same tier → toggle off.
+			FX.autoHatch = { eggId = nil, n = 1 }
+		else
+			FX.autoHatch = { eggId = capId, n = n }
+		end
+		saveData(snapshotForSave())
+		if FX.refreshAutoHatchButtons then
+			FX.refreshAutoHatchButtons()
+		end
+	end
+	autoHatchBtn.MouseButton1Click:Connect(function()
+		selectAutoHatch(1)
+	end)
+	autoHatchBtn3x.MouseButton1Click:Connect(function()
+		if not FX.tripleHatchUnlocked then
+			return
+		end
+		selectAutoHatch(3)
+	end)
+	autoHatchBtn5x.MouseButton1Click:Connect(function()
+		if not FX.fiveHatchUnlocked then
+			return
+		end
+		selectAutoHatch(5)
+	end)
+	stopAutoHatchBtn.MouseButton1Click:Connect(function()
+		FX.autoHatch = { eggId = nil, n = 1 }
+		saveData(snapshotForSave())
+		if FX.refreshAutoHatchButtons then
+			FX.refreshAutoHatchButtons()
+		end
+	end)
+
 	return {
 		def = def,
 		card = card,
@@ -6587,6 +6985,10 @@ local function buildEggCard(def, isFirst, layoutOrder)
 		hatchBtn3x = hatchBtn3x,
 		hatchBtn5x = hatchBtn5x,
 		oddsPanel = oddsPanel,
+		autoHatchBtn = autoHatchBtn,
+		autoHatchBtn3x = autoHatchBtn3x,
+		autoHatchBtn5x = autoHatchBtn5x,
+		stopAutoHatchBtn = stopAutoHatchBtn,
 	}
 end
 
@@ -6749,6 +7151,65 @@ function FX.refreshHatchButtons()
 			end
 		end
 	end
+	-- v60: refresh the per-egg auto-hatch row in lock-step with the regular
+	-- hatch row so 3x / 5x appear at the same moment in both places.
+	if FX.refreshAutoHatchButtons then
+		FX.refreshAutoHatchButtons()
+	end
+end
+
+-- v60: refresh visibility + active-state highlighting for the per-egg Auto Hatch
+-- row + Stop button. Called from FX.refreshHatchButtons and from the per-egg
+-- click handlers. Active button (1x / 3x / 5x matching FX.autoHatch.n) is tinted
+-- brighter green; the red Stop button is visible only on the active egg.
+function FX.refreshAutoHatchButtons()
+	local ah = FX.autoHatch or { eggId = nil, n = 1 }
+	local activeEgg = ah.eggId
+	local activeN = ah.n or 1
+	local has3 = FX.tripleHatchUnlocked == true
+	local has5 = FX.fiveHatchUnlocked == true
+	for _, ui in pairs(eggUI) do
+		local b1, b3, b5 = ui.autoHatchBtn, ui.autoHatchBtn3x, ui.autoHatchBtn5x
+		local stop = ui.stopAutoHatchBtn
+		if b1 and b3 and b5 and stop then
+			b3.Visible = has3
+			b5.Visible = has5
+			if has5 and has3 then
+				b5.Position = UDim2.new(1, -44, 0, 0)
+				b3.Position = UDim2.new(1, -92, 0, 0)
+				b1.Size = UDim2.new(1, -96, 1, 0)
+			elseif has3 then
+				b3.Position = UDim2.new(1, -44, 0, 0)
+				b1.Size = UDim2.new(1, -48, 1, 0)
+			elseif has5 then
+				b5.Position = UDim2.new(1, -44, 0, 0)
+				b1.Size = UDim2.new(1, -48, 1, 0)
+			else
+				b1.Size = UDim2.new(1, 0, 1, 0)
+			end
+			local isMine = activeEgg == ui.def.id
+			-- Tint the active button (per N selection) bright green; others stay dim.
+			local function paint(btn, n, dimColor)
+				if isMine and activeN == n then
+					btn.BackgroundColor3 = Color3.fromRGB(90, 200, 110)
+					btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+				else
+					btn.BackgroundColor3 = dimColor
+					btn.TextColor3 = Color3.fromRGB(220, 255, 230)
+				end
+			end
+			paint(b1, 1, Color3.fromRGB(50, 90, 60))
+			paint(b3, 3, Color3.fromRGB(40, 70, 50))
+			paint(b5, 5, Color3.fromRGB(35, 60, 80))
+			b1.Text = (isMine and activeN == 1) and "\u{267B}\u{FE0F} Auto Hatch (ON)" or "\u{267B}\u{FE0F} Auto Hatch"
+			stop.Visible = isMine
+		end
+	end
+	-- v61: global Stop Auto Hatch button under the master auto-delete is visible
+	-- whenever ANY egg is auto-hatching (mirrors the per-egg stop button).
+	if FX._globalStopAutoHatchBtn then
+		FX._globalStopAutoHatchBtn.Visible = activeEgg ~= nil
+	end
 end
 
 -- Master auto-delete button: renders at the top of the eggs scroll (LayoutOrder -1)
@@ -6775,6 +7236,41 @@ end
 	btn.MouseButton1Click:Connect(function()
 		openAutoDeleteGui(nil)
 	end)
+end)()
+
+-- v61: Global "Stop Auto Hatch" button, parked just under the master auto-delete
+-- (LayoutOrder 0 → between the master at -1 and the first area header at 1).
+-- Visible only when any egg currently has auto-hatch active. Clicking clears the
+-- global FX.autoHatch state and forces the per-egg UI to refresh.
+;(function()
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -10, 0, 32)
+	btn.BackgroundColor3 = Color3.fromRGB(170, 50, 70)
+	btn.BorderSizePixel = 0
+	btn.Text = "\u{1F6D1} Stop Auto Hatch"
+	btn.TextColor3 = Color3.fromRGB(255, 240, 240)
+	btn.TextSize = 13
+	btn.Font = Enum.Font.GothamBold
+	btn.ZIndex = 104
+	btn.LayoutOrder = 0
+	btn.Visible = false
+	btn.Parent = PetsScroll
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = btn
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(230, 120, 130)
+	stroke.Thickness = 1
+	stroke.Parent = btn
+	btn.MouseButton1Click:Connect(function()
+		FX.autoHatch = { eggId = nil, n = 1 }
+		if FX.refreshAutoHatchButtons then
+			FX.refreshAutoHatchButtons()
+		end
+		saveData(snapshotForSave())
+		showNotification("\u{1F6D1} Auto Hatch stopped", Color3.fromRGB(170, 50, 70))
+	end)
+	FX._globalStopAutoHatchBtn = btn
 end)()
 
 do
@@ -6804,7 +7300,17 @@ end
 for _, def in ipairs(EGG_DEFS) do
 	local capId = def.id
 	eggUI[capId].accordionBtn.MouseButton1Click:Connect(function()
-		eggsOpen[capId] = not eggsOpen[capId]
+		-- v61: only one egg accordion may be open at a time. Toggle this one,
+		-- then close every other egg before refreshing the UI.
+		local wasOpen = eggsOpen[capId] == true
+		if wasOpen then
+			eggsOpen[capId] = false
+		else
+			for _, d in ipairs(EGG_DEFS) do
+				eggsOpen[d.id] = false
+			end
+			eggsOpen[capId] = true
+		end
 		refreshEggAccordions()
 		saveData(snapshotForSave())
 	end)
@@ -7551,19 +8057,19 @@ function updateLabels()
 			local cost = FX.AURORA_COSTS[tier]
 			local mult = FX.AURORA_MULTS[tier]
 			if tier <= lvl then
-				ref.costLbl.Text = string.format("Owned. \u{00D7}%d active \u{2014} multiplied after rebirths \u{00D7} pets.", mult)
+				ref.costLbl.Text = string.format("Owned. \u{00D7}%d active \u{2014} multiplies clicks AND gems.", mult)
 				ref.buyBtn.Text = "OWNED"
 				ref.buyBtn.BackgroundColor3 = Color3.fromRGB(40, 28, 70)
 				ref.buyBtn.TextColor3 = Color3.fromRGB(150, 130, 200)
 				ref.card.BackgroundColor3 = Color3.fromRGB(36, 30, 76)
 			elseif tier == lvl + 1 then
 				ref.costLbl.Text = string.format(
-					"Cost: %s \u{1F48E}  \u{00B7}  raises your aurora multi to \u{00D7}%d",
+					"Cost: %s \u{1F48E}  \u{00B7}  raises clicks AND gems to \u{00D7}%d",
 					formatNumber(cost),
 					mult
 				)
 				local canA = gems >= cost
-				ref.buyBtn.Text = "Ascend \u{2192} \u{00D7}" .. tostring(mult)
+				ref.buyBtn.Text = "Ascend \u{2192} \u{00D7}" .. tostring(mult) .. " clicks & gems"
 				ref.buyBtn.BackgroundColor3 = canA and Color3.fromRGB(160, 90, 240) or Color3.fromRGB(50, 30, 90)
 				ref.buyBtn.TextColor3 = canA and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(170, 140, 220)
 				ref.card.BackgroundColor3 = Color3.fromRGB(32, 26, 64)
@@ -8074,10 +8580,22 @@ local function _acquireSlot()
 	multLbl.ZIndex = 603
 	multLbl.Parent = slot
 
+	-- v57: per-pet gem multiplier (= 1 + (lv-1) * 0.0025). Sits just below Power.
+	local gemLbl = Instance.new("TextLabel")
+	gemLbl.Name = "GemLbl"
+	gemLbl.Size = UDim2.new(1, 0, 0, 13)
+	gemLbl.Position = UDim2.new(0, 0, 0, 142)
+	gemLbl.BackgroundTransparency = 1
+	gemLbl.TextColor3 = Color3.fromRGB(140, 220, 255)
+	gemLbl.TextSize = 11
+	gemLbl.Font = Enum.Font.GothamBold
+	gemLbl.ZIndex = 603
+	gemLbl.Parent = slot
+
 	local shinyBtn = Instance.new("TextButton")
 	shinyBtn.Name = "ShinyBtn"
 	shinyBtn.Size = UDim2.new(1, -10, 0, 22)
-	shinyBtn.Position = UDim2.new(0, 5, 0, 142)
+	shinyBtn.Position = UDim2.new(0, 5, 0, 158)
 	shinyBtn.BorderSizePixel = 0
 	shinyBtn.TextSize = 10
 	shinyBtn.Font = Enum.Font.GothamBold
@@ -8091,7 +8609,7 @@ local function _acquireSlot()
 	local equipBtn = Instance.new("TextButton")
 	equipBtn.Name = "EquipBtn"
 	equipBtn.Size = UDim2.new(1, -10, 0, 26)
-	equipBtn.Position = UDim2.new(0, 5, 0, 168)
+	equipBtn.Position = UDim2.new(0, 5, 0, 184)
 	equipBtn.BorderSizePixel = 0
 	equipBtn.TextSize = 11
 	equipBtn.Font = Enum.Font.GothamBold
@@ -8104,7 +8622,7 @@ local function _acquireSlot()
 	local unequipBtn = Instance.new("TextButton")
 	unequipBtn.Name = "UnequipBtn"
 	unequipBtn.Size = UDim2.new(1, -10, 0, 26)
-	unequipBtn.Position = UDim2.new(0, 5, 0, 198)
+	unequipBtn.Position = UDim2.new(0, 5, 0, 214)
 	unequipBtn.BorderSizePixel = 0
 	unequipBtn.TextSize = 11
 	unequipBtn.Font = Enum.Font.GothamBold
@@ -8255,7 +8773,7 @@ local function rebuildInventory()
 		end
 
 		local emojiLbl = slot:FindFirstChild("EmojiLbl")
-		emojiLbl.Text = pet.emoji
+		emojiLbl.Text = displayPetEmoji(pet)
 
 		local nameLbl = slot:FindFirstChild("NameLbl")
 		nameLbl.Text = pet.name
@@ -8273,6 +8791,13 @@ local function rebuildInventory()
 
 		local multLbl = slot:FindFirstChild("MultLbl")
 		multLbl.Text = "Power \u{00D7}" .. formatMultiplier(effectiveMultForPetName(invKey))
+
+		-- v59: gem multiplier this pet contributes when equipped (rarity-stepped).
+		-- v63: forward `shinyOn` so shiny variants display the 3× gem bump too.
+		local gemLbl = slot:FindFirstChild("GemLbl")
+		if gemLbl then
+			gemLbl.Text = string.format("Gems \u{00D7}%.4f", FX.petGemMult(pet, t.lv, shinyOn))
+		end
 
 		local shinyBtn = slot:FindFirstChild("ShinyBtn")
 		if invDeleteSelectMode or shinyOn then
@@ -8819,6 +9344,7 @@ end)
 	UpgradeCard.BackgroundColor3 = Color3.fromRGB(22, 22, 38)
 	UpgradeCard.BorderSizePixel = 0
 	UpgradeCard.ZIndex = 103
+	UpgradeCard.LayoutOrder = 1 -- repeatable
 	UpgradeCard.Parent = UpgradesScroll
 	local ucc = Instance.new("UICorner")
 	ucc.CornerRadius = UDim.new(0, 8)
@@ -8871,6 +9397,7 @@ end)
 	StorageUpgradeCard.BackgroundColor3 = Color3.fromRGB(22, 28, 42)
 	StorageUpgradeCard.BorderSizePixel = 0
 	StorageUpgradeCard.ZIndex = 103
+	StorageUpgradeCard.LayoutOrder = 2 -- repeatable
 	StorageUpgradeCard.Parent = UpgradesScroll
 	local scc = Instance.new("UICorner")
 	scc.CornerRadius = UDim.new(0, 8)
@@ -8925,6 +9452,7 @@ end)
 	EquipSlotCard.BackgroundColor3 = Color3.fromRGB(40, 28, 22)
 	EquipSlotCard.BorderSizePixel = 0
 	EquipSlotCard.ZIndex = 103
+	EquipSlotCard.LayoutOrder = 3 -- repeatable
 	EquipSlotCard.Parent = UpgradesScroll
 	local escc = Instance.new("UICorner")
 	escc.CornerRadius = UDim.new(0, 8)
@@ -8977,6 +9505,7 @@ end)
 	AutoClickCard.BackgroundColor3 = Color3.fromRGB(22, 38, 28)
 	AutoClickCard.BorderSizePixel = 0
 	AutoClickCard.ZIndex = 103
+	AutoClickCard.LayoutOrder = 4 -- repeatable
 	AutoClickCard.Parent = UpgradesScroll
 	local accc = Instance.new("UICorner")
 	accc.CornerRadius = UDim.new(0, 8)
@@ -9029,6 +9558,7 @@ end)
 	CooldownCard.BackgroundColor3 = Color3.fromRGB(36, 32, 50)
 	CooldownCard.BorderSizePixel = 0
 	CooldownCard.ZIndex = 103
+	CooldownCard.LayoutOrder = 5 -- repeatable
 	CooldownCard.Parent = UpgradesScroll
 	local cdcc = Instance.new("UICorner")
 	cdcc.CornerRadius = UDim.new(0, 8)
@@ -9082,6 +9612,7 @@ end)
 	TripleHatchCard.BackgroundColor3 = Color3.fromRGB(50, 28, 30)
 	TripleHatchCard.BorderSizePixel = 0
 	TripleHatchCard.ZIndex = 103
+	TripleHatchCard.LayoutOrder = 51 -- one-time
 	TripleHatchCard.Parent = UpgradesScroll
 	local thcc = Instance.new("UICorner")
 	thcc.CornerRadius = UDim.new(0, 8)
@@ -9140,6 +9671,7 @@ end)
 	FiveHatchCard.BackgroundColor3 = Color3.fromRGB(40, 22, 56)
 	FiveHatchCard.BorderSizePixel = 0
 	FiveHatchCard.ZIndex = 103
+	FiveHatchCard.LayoutOrder = 52 -- one-time
 	FiveHatchCard.Parent = UpgradesScroll
 	local fhcc = Instance.new("UICorner")
 	fhcc.CornerRadius = UDim.new(0, 8)
@@ -9197,6 +9729,7 @@ end)
 	ShinyCard.BackgroundColor3 = Color3.fromRGB(50, 44, 22)
 	ShinyCard.BorderSizePixel = 0
 	ShinyCard.ZIndex = 103
+	ShinyCard.LayoutOrder = 6 -- repeatable
 	ShinyCard.Parent = UpgradesScroll
 	local shCardCorner = Instance.new("UICorner")
 	shCardCorner.CornerRadius = UDim.new(0, 8)
@@ -9247,6 +9780,7 @@ end)
 	MaxRebirthCard.BackgroundColor3 = Color3.fromRGB(45, 28, 50)
 	MaxRebirthCard.BorderSizePixel = 0
 	MaxRebirthCard.ZIndex = 103
+	MaxRebirthCard.LayoutOrder = 53 -- one-time
 	MaxRebirthCard.Parent = UpgradesScroll
 	local mrCornerInst = Instance.new("UICorner")
 	mrCornerInst.CornerRadius = UDim.new(0, 8)
@@ -9298,6 +9832,7 @@ end)
 	AutoRebirthCard.BackgroundColor3 = Color3.fromRGB(28, 40, 50)
 	AutoRebirthCard.BorderSizePixel = 0
 	AutoRebirthCard.ZIndex = 103
+	AutoRebirthCard.LayoutOrder = 54 -- one-time
 	AutoRebirthCard.Parent = UpgradesScroll
 	local arCardCorner = Instance.new("UICorner")
 	arCardCorner.CornerRadius = UDim.new(0, 8)
@@ -9350,7 +9885,44 @@ end)
 	AutoDelRefundCard.BackgroundColor3 = Color3.fromRGB(40, 26, 30)
 	AutoDelRefundCard.BorderSizePixel = 0
 	AutoDelRefundCard.ZIndex = 103
+	AutoDelRefundCard.LayoutOrder = 7 -- repeatable
 	AutoDelRefundCard.Parent = UpgradesScroll
+
+	-- v56: divider between repeatable upgrades (above) and one-time unlocks (below).
+	local UpgradesDivider = Instance.new("Frame")
+	UpgradesDivider.Size = UDim2.new(1, -20, 0, 28)
+	UpgradesDivider.BackgroundTransparency = 1
+	UpgradesDivider.LayoutOrder = 50
+	UpgradesDivider.ZIndex = 103
+	UpgradesDivider.Parent = UpgradesScroll
+	do
+		local leftLine = Instance.new("Frame")
+		leftLine.Size = UDim2.new(0.5, -90, 0, 2)
+		leftLine.Position = UDim2.new(0, 0, 0.5, -1)
+		leftLine.BackgroundColor3 = Color3.fromRGB(80, 80, 110)
+		leftLine.BorderSizePixel = 0
+		leftLine.ZIndex = 103
+		leftLine.Parent = UpgradesDivider
+
+		local rightLine = Instance.new("Frame")
+		rightLine.Size = UDim2.new(0.5, -90, 0, 2)
+		rightLine.Position = UDim2.new(0.5, 90, 0.5, -1)
+		rightLine.BackgroundColor3 = Color3.fromRGB(80, 80, 110)
+		rightLine.BorderSizePixel = 0
+		rightLine.ZIndex = 103
+		rightLine.Parent = UpgradesDivider
+
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.new(0, 170, 1, 0)
+		label.Position = UDim2.new(0.5, -85, 0, 0)
+		label.BackgroundTransparency = 1
+		label.Text = "ONE-TIME UNLOCKS"
+		label.TextColor3 = Color3.fromRGB(180, 180, 220)
+		label.TextSize = 12
+		label.Font = Enum.Font.GothamBold
+		label.ZIndex = 104
+		label.Parent = UpgradesDivider
+	end
 	local adrCardCorner = Instance.new("UICorner")
 	adrCardCorner.CornerRadius = UDim.new(0, 8)
 	adrCardCorner.Parent = AutoDelRefundCard
@@ -9436,8 +10008,9 @@ end)
 	FX.uiRefs.shinyCostLabel = ShinyCostLabel
 	FX.uiRefs.shinyBtn = ShinyBtn
 
-	-- v50: eleven upgrade cards (added Auto-Delete Refund). ~108 px stride → ~1290 canvas.
-	FX.setCanvas(UpgradesScroll, 1290)
+	-- v56: eleven upgrade cards + 28px divider → bump canvas a touch so the last
+	-- card stays scrollable into view.
+	FX.setCanvas(UpgradesScroll, 1330)
 
 	UpgradeBtn.MouseButton1Click:Connect(function()
 		local cost = getUpgradeCost()
@@ -9715,7 +10288,7 @@ end)
 				local nm = FX.AURORA_NAMES[capTier] or "Aurora"
 				local theme = FX.getAuroraTheme()
 				showNotification(
-					string.format("\u{1F30C} Aurora %d (%s) ascended! \u{00D7}%d click power.", capTier, nm, mult),
+					string.format("\u{1F30C} Aurora %d (%s) ascended! \u{00D7}%d clicks & gems.", capTier, nm, mult),
 					theme.idle
 				)
 			end)
@@ -9777,8 +10350,10 @@ local function spawnParticle(basePos, customText, isBig)
 	lbl.Size = UDim2.new(0, size, 0, size)
 	local angle = math.random() * math.pi * 2
 	local radius = math.random(0, 18)
-	-- Convert absolute screen coords to GameFrame-local coords (topbar offset).
-	local gp = GameFrame.AbsolutePosition
+	-- Parent to ClickerGui (same parent as ClickButton): with Sibling ZIndex, children
+	-- of GameFrame cannot draw above the button (GameFrame.ZIndex=100 < 250).
+	local guiRoot = ClickerGui
+	local gp = guiRoot.AbsolutePosition
 	local startX = (basePos.X - gp.X) + math.cos(angle) * radius
 	local startY = (basePos.Y - gp.Y) + math.sin(angle) * radius
 	lbl.Position = UDim2.new(0, startX - size / 2, 0, startY - size / 2)
@@ -9796,8 +10371,8 @@ local function spawnParticle(basePos, customText, isBig)
 	lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 	lbl.Font = Enum.Font.GothamBold
 	lbl.Rotation = math.random(-25, 25)
-	lbl.ZIndex = 500
-	lbl.Parent = GameFrame
+	lbl.ZIndex = 270
+	lbl.Parent = guiRoot
 
 	-- Drift mostly upward with some horizontal scatter.
 	local driftX = math.random(-90, 90)
@@ -10182,7 +10757,11 @@ end)
 local hatchQueue = {}
 local function applyToPopup(emojiLbl, nameLbl, rarityLbl, entry)
 	emojiLbl.Text = entry.emoji
-	nameLbl.Text = entry.name
+	local dispName = entry.name
+	if entry.rarity == "Secret" or entry.rarity == "Divine" then
+		dispName = "SECRET " .. dispName
+	end
+	nameLbl.Text = dispName
 	nameLbl.TextColor3 = rarityColors[entry.rarity] or Color3.fromRGB(255, 255, 255)
 	rarityLbl.Text = entry.subline
 	rarityLbl.TextColor3 = rarityColors[entry.rarity] or Color3.fromRGB(200, 200, 200)
@@ -10374,9 +10953,10 @@ local function performHatchClick(capDef, rollCount)
 			if entry.shiny then
 				subline = "\u{2728} SHINY  \u{2022}  " .. subline
 			end
+			local dispName = entry.shiny and ("Shiny " .. entry.pet.name) or entry.pet.name
 			table.insert(batch, {
-				emoji = entry.pet.emoji,
-				name = entry.shiny and ("Shiny " .. entry.pet.name) or entry.pet.name,
+				emoji = displayPetEmoji(entry.pet),
+				name = dispName,
 				rarity = entry.pet.rarity,
 				subline = subline,
 			})
@@ -10389,7 +10969,19 @@ local function performHatchClick(capDef, rollCount)
 		end
 	end
 
-	if #batch > 0 then
+	-- v61: small hatch icons — fire one per roll (auto-deleted or kept). The
+	-- helper is a no-op when the player has the setting turned off, so this is
+	-- safe to always call. Loops over `rolled` (not `batch`) so triple-hatches
+	-- show 3 icons and auto-deleted rolls still register a visual.
+	if FX.spawnSmallHatchIcon then
+		for _, entry in ipairs(rolled) do
+			FX.spawnSmallHatchIcon(entry.pet)
+		end
+	end
+
+	-- v63: when "Small Hatch Icons" is ON, suppress the big center hatch popup
+	-- entirely — the small icons above the click button are the only visual.
+	if #batch > 0 and not FX.smallHatchIconsEnabled then
 		hatchQueue = { batch }
 	end
 	saveData(snapshotForSave())
@@ -10586,6 +11178,43 @@ task.spawn(function()
 	end
 end)
 
+-- v60: Auto Hatch heartbeat. Drives the selected egg's hatch as fast as the
+-- shared cooldown + click affordability + storage cap allow. Stops itself the
+-- moment FX.autoHatch.eggId is cleared (by the Stop button or by tapping the
+-- same tier again). Re-falls n back to 1 / 3 if the player loses access to a
+-- tier (e.g. full reset between sessions).
+task.spawn(function()
+	while true do
+		task.wait(0.15)
+		local ah = FX.autoHatch
+		if ah and ah.eggId then
+			local ui = eggUI[ah.eggId]
+			local def = ui and ui.def
+			if not def then
+				FX.autoHatch = { eggId = nil, n = 1 }
+				if FX.refreshAutoHatchButtons then
+					FX.refreshAutoHatchButtons()
+				end
+			else
+				local n = ah.n or 1
+				if n >= 5 and not FX.fiveHatchUnlocked then
+					n = FX.tripleHatchUnlocked and 3 or 1
+				end
+				if n >= 3 and n < 5 and not FX.tripleHatchUnlocked then
+					n = 1
+				end
+				if AREAS.unlocked[def.areaIndex]
+					and clicks >= def.cost * n
+					and getTotalPetCount() + n <= getPetStorageCap()
+					and FX.getEggRemainingCooldown(def.id) <= 0
+				then
+					performHatchClick(def, n)
+				end
+			end
+		end
+	end
+end)
+
 -- v28: Full reset, used by the "Reset All Data" button in settings. Wipes every
 -- gameplay number / inventory / upgrade and refreshes the UI in place (no reload
 -- required). Stashed on FX so the settings sidebar IIFE can find it without a
@@ -10617,6 +11246,7 @@ FX.performFullReset = function()
 	autoDeleteRules = {}
 	FX.tripleHatchUnlocked = false
 	FX.fiveHatchUnlocked = false
+	FX.autoHatch = { eggId = nil, n = 1 }
 	FX.auroraLevel = 0
 	FX.cooldownBought = 0
 	FX.shinyBought = 0
@@ -11468,6 +12098,9 @@ end
 switchTab("rebirths")
 refreshEggAccordions()
 FX.refreshHatchButtons()
+if FX.refreshAutoHatchButtons then
+	FX.refreshAutoHatchButtons()
+end
 if FX.refreshClickButtonTheme then
 	FX.refreshClickButtonTheme()
 end
