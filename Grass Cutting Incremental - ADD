@@ -1,0 +1,162 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
+
+-- Secure UI Placement
+local guiParent = (gethui and gethui()) or CoreGui
+local oldGui = guiParent:FindFirstChild("GodSpoofer")
+if oldGui then oldGui:Destroy() end
+
+local enabled = false
+
+-- The complete list of every grass type from the game's code
+local grassTypes = {
+	"basic", "pale", "copper", "tin", "bronze", "silver", "gold", "diamond", "platinum",
+	"moonstone", "ruby", "observatorium", "perk", "perk2", "rune", "iridium", "white crystal",
+	"green crystal", "blue crystal", "indigo crystal", "purple crystal", "pink crystal",
+	"red crystal", "orange crystal", "yellow crystal", "zebra", "polka dots", "checker board",
+	"triangles", "hexagons", "fractal", "arrows", "puzzle", "grassman", "placeholder1", "template",
+	"spaceWhite", "vibrant", "neon", "void", "synthwave", "aurora", "domino", "alphabet", "candycane",
+	"snow", "blocky", "festive", "wall2", "wall3", "wall4", "wall5", "wall6", "wall7", "wall8", "wall9",
+	"wall10", "pw1", "pw2", "pw3", "pw4", "pw5", "pw6", "pw7", "pw8", "spaceGreen", "spaceBlue",
+	"spaceIndigo", "spacePurple", "spacePink", "spaceRed", "placeholder2", "placeholder3",
+	"placeholder4", "placeholder5", "placeholder6"
+}
+
+-- UI Setup
+local gui = Instance.new("ScreenGui")
+gui.Name = "GodSpoofer"
+gui.ResetOnSpawn = false
+gui.Parent = guiParent
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.fromOffset(250, 150)
+frame.Position = UDim2.fromOffset(120, 120)
+frame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+frame.BorderSizePixel = 0
+frame.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = frame
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(255, 50, 50)
+stroke.Thickness = 2
+stroke.Parent = frame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.Position = UDim2.new(0, 0, 0, 5)
+title.BackgroundTransparency = 1
+title.Text = "🔥 ALL-TIER SPOOFER 🔥"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextColor3 = Color3.fromRGB(255, 150, 150)
+title.Parent = frame
+
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, 0, 0, 20)
+status.Position = UDim2.fromOffset(0, 35)
+status.BackgroundTransparency = 1
+status.Text = "Status: Waiting..."
+status.Font = Enum.Font.Gotham
+status.TextSize = 11
+status.TextColor3 = Color3.fromRGB(200, 200, 200)
+status.Parent = frame
+
+local button = Instance.new("TextButton")
+button.Size = UDim2.fromOffset(200, 45)
+button.Position = UDim2.fromOffset(25, 65)
+button.Text = "Off"
+button.BackgroundColor3 = Color3.fromRGB(50, 20, 20)
+button.TextColor3 = Color3.fromRGB(235, 235, 235)
+button.Font = Enum.Font.GothamBold
+button.TextSize = 20
+button.Parent = frame
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 8)
+btnCorner.Parent = button
+
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(24, 24)
+close.Position = UDim2.new(1, -30, 0, 8)
+close.Text = "X"
+close.Font = Enum.Font.GothamBold
+close.BackgroundColor3 = Color3.fromRGB(80, 25, 25)
+close.TextColor3 = Color3.fromRGB(255, 150, 150)
+close.Parent = frame
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 6)
+closeCorner.Parent = close
+
+-- Dragging Logic
+local UserInputService = game:GetService("UserInputService")
+local dragging, dragStart, startPos
+frame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = frame.Position
+	end
+end)
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+end)
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+
+-- Spoofer Logic
+local function spoofLoop()
+	local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GenericFunction")
+	
+	while enabled do
+		for _, typeName in ipairs(grassTypes) do
+			if not enabled then break end
+			
+			status.Text = "Spoofing: " .. typeName
+			
+			local args = {
+				{
+					id = "cut",
+					identifier = typeName,
+					quantity = 1, -- Trying to spoof massive quantities
+					field = "main"
+				}
+			}
+			
+			-- Use task.spawn so the script doesn't freeze waiting for the server to reply
+			task.spawn(function()
+				pcall(function()
+					remote:InvokeServer(unpack(args))
+				end)
+			end)
+			
+			task.wait(0.1) -- 0.1 second delay between each cut to prevent server disconnects
+		end
+	end
+	status.Text = "Status: Waiting..."
+end
+
+-- Controls
+button.MouseButton1Click:Connect(function()
+	enabled = not enabled
+	button.Text = enabled and "HACKING" or "Off"
+	button.BackgroundColor3 = enabled and Color3.fromRGB(150, 30, 30) or Color3.fromRGB(50, 20, 20)
+
+	if enabled then
+		task.spawn(spoofLoop)
+	end
+end)
+
+close.MouseButton1Click:Connect(function()
+	enabled = false
+	gui:Destroy()
+end)
+
+print("Spoofer Loaded")
